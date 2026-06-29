@@ -1,0 +1,53 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { LOADING_IMAGE } from '../assets';
+import { useDinoRunner } from '../state/dinoRunner';
+
+type LandingStep = 'open' | 'enter';
+
+const router = useRouter();
+const store = useDinoRunner();
+const step = ref<LandingStep>('open');
+
+async function handleOpen() {
+  const ok = await store.openOnDevice();
+  step.value = ok ? 'enter' : 'open';
+}
+
+async function handleEnter() {
+  if (!store.canEnter.value) {
+    await handleOpen();
+    return;
+  }
+  router.push('/game');
+  await store.connectDevice();
+}
+</script>
+
+<template>
+  <main class="landing dino-landing" :class="step">
+    <div class="landing-visual" aria-hidden="true">
+      <div class="loading-device dino-device">
+        <img :src="LOADING_IMAGE" alt="" />
+      </div>
+    </div>
+
+    <div class="landing-copy">
+      <h1>恐龙暴走</h1>
+      <p>控制一只小恐龙跳跃障碍，模拟 chrome://dino 游戏</p>
+    </div>
+
+    <div class="landing-actions">
+      <button class="landing-primary" :disabled="store.busy.value" @click="step === 'enter' ? handleEnter() : handleOpen()">
+        {{ store.openButtonLabel.value }}
+      </button>
+      <p
+        v-if="store.statusText.value"
+        :class="store.state.status === 'error' ? 'landing-error' : 'landing-status'"
+      >
+        {{ store.statusText.value }}
+      </p>
+    </div>
+  </main>
+</template>

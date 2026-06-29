@@ -1,0 +1,26 @@
+{
+  "name": "dino-runner",
+  "version": "0.0.1",
+  "description": "恐龙暴走：PixelMug dinosaur runner game.",
+  "author": "jeejio",
+  "category": "Game",
+  "dependencies": [
+    {
+      "name": "micropyxel",
+      "version": ">=1.0.0"
+    },
+    {
+      "name": "maopaoBle",
+      "version": ">=1.0.0"
+    },
+    {
+      "name": "simpletouch",
+      "version": ">=1.0.0"
+    },
+    {
+      "name": "audio_service",
+      "version": ">=1.0.0"
+    }
+  ],
+  "date": "2026-06-10"
+}
