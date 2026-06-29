@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { LOADING_IMAGE } from '../assets';
+import { t } from '../i18n';
 import { useDinoRunner } from '../state/dinoRunner';
 
 type LandingStep = 'open' | 'enter';
@@ -34,8 +35,8 @@ async function handleEnter() {
     </div>
 
     <div class="landing-copy">
-      <h1>恐龙暴走</h1>
-      <p>控制一只小恐龙跳跃障碍，模拟 chrome://dino 游戏</p>
+      <h1>{{ t('app.title') }}</h1>
+      <p>{{ t('landing.subtitle') }}</p>
     </div>
 
     <div class="landing-actions">

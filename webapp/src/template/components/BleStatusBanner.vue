@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { t } from '../../i18n';
 import { hasJeeWebBridge } from '../bubbleClient';
 import { useBleSession } from '../bleSession';
 
@@ -25,13 +26,17 @@ const tone = computed(() => {
 });
 
 const label = computed(() => {
-  if (ble.isReady.value) return 'BLE connected';
-  if (ble.isConnecting.value) return `Connecting BLE (${connectingSeconds.value}s)`;
+  if (ble.isReady.value) return t('ble.connected');
+  if (ble.isConnecting.value) return t('ble.connecting', { seconds: connectingSeconds.value });
   if (ble.state.message === 'Connecting BLE...' || ble.state.message === 'Connecting BLE') {
-    return 'BLE disconnected';
+    return t('ble.disconnected');
+  }
+  if (ble.state.message === 'BLE connected.' || ble.state.message === 'BLE connected') return t('ble.connected');
+  if (ble.state.message === 'BLE disconnected.' || ble.state.message === 'PixelMug disconnected.') {
+    return t('ble.disconnected');
   }
   if (ble.state.message) return ble.state.message;
-  return 'BLE disconnected';
+  return t('ble.disconnected');
 });
 
 const canRetry = computed(() => hasBridge.value && !ble.isReady.value && !ble.isConnecting.value);
@@ -83,7 +88,7 @@ async function retry() {
     <div class="ble-status-banner" :class="tone">
       <span class="ble-status-dot" />
       <span class="ble-status-text">{{ label }}</span>
-      <button v-if="canRetry" type="button" @click="retry">Retry</button>
+      <button v-if="canRetry" type="button" @click="retry">{{ t('ble.retry') }}</button>
     </div>
   </div>
 </template>

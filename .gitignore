@@ -1,3 +1,6 @@
+bot/config.dev.js
+bot/config.pub.js
+
 # Dependencies
 node_modules/
 

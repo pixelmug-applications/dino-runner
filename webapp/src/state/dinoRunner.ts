@@ -2,6 +2,7 @@ import { computed, reactive, watch } from 'vue';
 import { hasJeeWebBridge, loadPixelMug } from '../template/bubbleClient';
 import { openMpsApp } from '../template/mpsLaunch';
 import { useBleSession } from '../template/bleSession';
+import { t } from '../i18n';
 import type { AppStatus, DeviceInfo, DinoDifficulty, DinoGameState } from '../types';
 
 type LaunchPhase = 'idle' | 'requesting' | 'preparing' | 'switching' | 'ready' | 'failed';
@@ -43,20 +44,20 @@ const canSend = computed(() => Boolean(state.device) && getBle().isReady.value);
 const canEnter = computed(() => state.launchPhase === 'ready');
 const statusText = computed(() => {
   if (!state.message) return '';
-  return hasJeeWebBridge() ? state.message : `${state.message} Browser mock mode.`;
+  return hasJeeWebBridge() ? state.message : `${state.message} ${t('status.browserMock')}`;
 });
 const openButtonLabel = computed(() => {
-  if (busy.value) return '正在打开...';
-  if (state.launchPhase === 'ready') return '进入游戏';
-  if (state.launchPhase === 'failed') return '重试';
-  return '在 PixelMug 上安装';
+  if (busy.value) return t('landing.opening');
+  if (state.launchPhase === 'ready') return t('landing.enter');
+  if (state.launchPhase === 'failed') return t('landing.retry');
+  return t('landing.install');
 });
 const stateLabel = computed(() => {
-  if (state.gameState === 'running') return '暴走中';
-  if (state.gameState === 'paused') return '已暂停';
-  if (state.gameState === 'gameover') return '撞上了';
-  if (state.gameState === 'ready') return '准备好了';
-  return '等待连接';
+  if (state.gameState === 'running') return t('game.state.running');
+  if (state.gameState === 'paused') return t('game.state.paused');
+  if (state.gameState === 'gameover') return t('game.state.gameover');
+  if (state.gameState === 'ready') return t('game.state.ready');
+  return t('game.state.unknown');
 });
 
 watch(
@@ -69,12 +70,12 @@ watch(
 export function useDinoRunner() {
   async function refreshDevice() {
     state.status = 'loading';
-    state.message = '正在查找 PixelMug...';
+    state.message = t('status.findingDevice');
     try {
       const result = await loadPixelMug();
       state.device = result;
       state.status = result ? 'ready' : 'error';
-      state.message = result ? 'PixelMug 已就绪。' : '还没有绑定 PixelMug。';
+      state.message = result ? t('status.deviceReady') : t('status.deviceMissing');
     } catch (error) {
       state.status = 'error';
       state.message = errorMessage(error);
@@ -89,14 +90,14 @@ export function useDinoRunner() {
     const target = state.device || (await loadPixelMug());
     if (!target) {
       state.status = 'error';
-      state.message = '还没有绑定 PixelMug。';
+      state.message = t('status.deviceMissing');
       return false;
     }
 
     state.device = target;
     state.status = 'installing';
     state.launchPhase = 'requesting';
-    state.message = '正在启动恐龙暴走...';
+    state.message = t('status.launching');
     try {
       await openMpsApp(target, undefined, {
         onPhase: updateLaunchPhase,
@@ -115,19 +116,19 @@ export function useDinoRunner() {
     const target = state.device || (await loadPixelMug());
     if (!target) {
       state.status = 'error';
-      state.message = '还没有绑定 PixelMug。';
+      state.message = t('status.deviceMissing');
       return;
     }
 
     state.device = target;
     state.status = 'connecting';
-    state.message = '正在连接 BLE...';
+    state.message = t('status.connectingBle');
     const ble = getBle();
     try {
       await ble.ensureConnected(target);
       state.bleState = ble.state.connection;
       state.status = 'connected';
-      state.message = 'BLE 已连接。';
+      state.message = t('status.bleConnected');
       await sendConfig();
     } catch (error) {
       state.status = 'error';
@@ -215,7 +216,7 @@ async function sendCommand(method: string, params?: Record<string, unknown>) {
       params,
     });
     state.status = 'connected';
-    state.message = '命令已发送。';
+    state.message = t('status.commandSent');
   } catch (error) {
     state.status = 'error';
     state.message = errorMessage(error);
@@ -247,19 +248,19 @@ function mockRunning() {
 function markLaunchReady() {
   state.status = 'ready';
   state.launchPhase = 'ready';
-  state.message = '恐龙已经跑起来了。';
+  state.message = t('status.launchReady');
 }
 
 function updateLaunchPhase(phase: LaunchPhase) {
   state.launchPhase = phase;
   if (phase === 'requesting') {
-    state.message = '正在启动恐龙暴走...';
+    state.message = t('status.launching');
   } else if (phase === 'preparing') {
-    state.message = '正在准备脚本...';
+    state.message = t('status.preparing');
   } else if (phase === 'switching') {
-    state.message = '正在切换应用...';
+    state.message = t('status.switching');
   } else if (phase === 'ready') {
-    state.message = '恐龙已经跑起来了。';
+    state.message = t('status.launchReady');
   }
 }
 
@@ -269,5 +270,5 @@ function loadBestScore() {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error || 'Unknown error');
+  return error instanceof Error ? error.message : String(error || t('status.unknownError'));
 }

@@ -5,24 +5,42 @@ import { extname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BubbleBot, InlineKeyboard } from "../../jeejio-bubble/sdk/BubbleSDK.js";
 import PixelMug from "../../jeejio-bubble/devices/PixelMug_1.1.js";
+import { apiBaseUrl, configEnv, token } from "./config.js";
 
-const token = process.env.BUBBLE_BOT_TOKEN;
-const apiBaseUrl = process.env.BUBBLE_API_BASE_URL || "https://api.devjeejio.com:5443/im/";
 const staticPort = Number(process.env.WEBAPP_PORT || 8799);
 const webAppHost = process.env.WEBAPP_HOST || localAddressHint();
 const generatedWebAppUrl = `http://${webAppHost}:${staticPort}/index.html`;
 const mpsLaunchConfig = {
-  id: process.env.MPS_ID || "6670033921",
-  version: process.env.MPS_VERSION || "0.0.1",
+  id: process.env.MPS_ID || "9898564609",
+  version: process.env.MPS_VERSION || "0.0.2",
 };
 const webAppUrl = withMpsLaunchConfig(process.env.WEBAPP_URL || generatedWebAppUrl);
 const shouldServeStatic = !process.env.WEBAPP_URL;
 
-if (!token) {
-  throw new Error("Missing BUBBLE_BOT_TOKEN. Set it before running npm run bot.");
-}
+const messages = {
+  "zh-CN": {
+    bindContent: "绑定 PixelMug 后即可运行恐龙暴走。",
+    bindButton: "绑定 PixelMug",
+    openButton: "打开恐龙暴走",
+    intro: "**恐龙暴走**\n\n在 PixelMug 上启动像素小恐龙，用手机或杯身触摸键跳跃，躲开一路冲来的障碍。\n\n点击下方按钮开始游戏。",
+    commands: "命令：/bindDevice，/dinoRunner",
+    commandBind: "绑定 PixelMug",
+    commandDino: "打开恐龙暴走",
+  },
+  "en-US": {
+    bindContent: "Bind a PixelMug before running Dino Runner.",
+    bindButton: "Bind PixelMug",
+    openButton: "Open Dino Runner",
+    intro: "**Dino Runner**\n\nLaunch a tiny pixel dino on PixelMug, jump with your phone or the mug touch key, and dodge the incoming obstacles.\n\nTap the button below to start.",
+    commands: "Commands: /bindDevice, /dinoRunner",
+    commandBind: "Bind PixelMug",
+    commandDino: "Open Dino Runner",
+  },
+};
 
 const pixelMug = new PixelMug();
+pixelMug.compatible = ["PixelMugS1"];
+
 const bot = new BubbleBot(token, {
   apiBaseUrl,
   debug: process.env.DEBUG !== "false",
@@ -58,20 +76,21 @@ bot.on("device_notify", async (ctx) => {
 });
 
 bot.on("message", async (ctx) => {
+  const locale = localeFromContext(ctx);
   const command = extractCommand(ctx.message?.content || ctx.message?.text || "");
 
   if (command === "/bindDevice") {
     await ctx.sendBindDevice({
-      content: "绑定 PixelMug 后即可运行恐龙暴走。",
-      actionButtonTitle: "绑定 PixelMug",
+      content: text(locale, "bindContent"),
+      actionButtonTitle: text(locale, "bindButton"),
     });
     return;
   }
 
   if (command === "/dinoRunner" || command === "/webapp" || command === "/start") {
-    const keyboard = new InlineKeyboard().url("打开恐龙暴走", webAppUrl);
+    const keyboard = new InlineKeyboard().url(text(locale, "openButton"), withLocale(webAppUrl, locale));
     await ctx.sendKeyboard(
-      "**恐龙暴走**\n\n在 PixelMug 上启动像素小恐龙，用手机或杯身触摸键跳跃，躲开一路冲来的障碍。\n\n点击下方按钮开始游戏。",
+      text(locale, "intro"),
       keyboard,
       {
         mentionOnly: ctx.chat?.type === "group" ? true : undefined,
@@ -80,7 +99,7 @@ bot.on("message", async (ctx) => {
     return;
   }
 
-  await ctx.sendText("Commands: /bindDevice, /dinoRunner");
+  await ctx.sendText(text(locale, "commands"));
 });
 
 if (shouldServeStatic) {
@@ -90,23 +109,46 @@ if (shouldServeStatic) {
 await bot.setCommands([
   {
     command: "bindDevice",
-    description: "绑定 PixelMug",
+    description: messages["en-US"].commandBind,
+    descTranslations: {
+      "zh-CN": messages["zh-CN"].commandBind,
+      en: messages["en-US"].commandBind,
+    },
   },
   {
     command: "dinoRunner",
-    description: "打开恐龙暴走",
+    description: messages["en-US"].commandDino,
+    descTranslations: {
+      "zh-CN": messages["zh-CN"].commandDino,
+      en: messages["en-US"].commandDino,
+    },
   },
 ]);
 
 await bot.start();
 
 console.log("mps-dino-runner bot is running.");
+console.log(`Bot config: ${configEnv}`);
 console.log(`WebApp URL: ${webAppUrl}`);
 
 function extractCommand(text) {
   const match = String(text || "").trim().match(/\/[a-zA-Z0-9_-]+(?:@[a-zA-Z0-9_-]+)?/);
   if (!match) return "";
   return match[0].split("@")[0];
+}
+
+function localeFromContext(ctx) {
+  const value = ctx.chat?.language || ctx.from?.language || process.env.APP_LOCALE;
+  return normalizeLocale(value);
+}
+
+function normalizeLocale(value) {
+  const source = String(value || "").toLowerCase();
+  return source.startsWith("zh") ? "zh-CN" : "en-US";
+}
+
+function text(locale, key) {
+  return messages[locale]?.[key] || messages["en-US"][key] || key;
 }
 
 function startStaticServer() {
@@ -155,9 +197,9 @@ function startStaticServer() {
   });
 }
 
-function sendStatus(res, status, text) {
+function sendStatus(res, status, body) {
   res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
-  res.end(text);
+  res.end(body);
 }
 
 function contentType(filePath) {
@@ -190,6 +232,12 @@ function withMpsLaunchConfig(url) {
   const next = new URL(url);
   next.searchParams.set("mps_id", mpsLaunchConfig.id);
   next.searchParams.set("mps_version", mpsLaunchConfig.version);
+  return next.toString();
+}
+
+function withLocale(url, locale) {
+  const next = new URL(url);
+  next.searchParams.set("lang", locale);
   return next.toString();
 }
 
