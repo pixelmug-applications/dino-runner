@@ -1,456 +1,581 @@
 import random
 import time
 
+try:
+    import ujson as json
+except ImportError:
+    import json
+
+import audio_service
 import micropyxel as pyxel
 from ble_webapp import WebAppBleManager
-from simpletouch import SimpleTouch
+from pyxel_prompt_sound import PromptSoundPlayer
+import mpy_button as touch_events
 
 
-TOUCH_PIN = 38
-RES_PATH = "assets/dina.toml"
 SCR_W = 32
 SCR_H = 16
 FPS = 30
-LOADING_DINO_1_PATH = "assets/dino-logo-1.png"
-LOADING_DINO_2_PATH = "assets/dino-logo-2.png"
-LOADING_CACTUS_PATH = "assets/cactus.png"
-LOADING_IMAGE_BANK = 0
-LOADING_DINO_1_U = 0
-LOADING_DINO_2_U = 8
-LOADING_CACTUS_U = 16
-LOADING_ASSET_V = 0
-LOADING_ASSET_SIZE = 8
-LOADING_DINO_X = 7
-LOADING_CACTUS_X = 17
-LOADING_ASSET_Y = 3
-LOADING_PROGRESS_W = 18
-LOADING_PROGRESS_X = (SCR_W - LOADING_PROGRESS_W) // 2
-LOADING_PROGRESS_Y = 13
-LOADING_PROGRESS_H = 1
-LOADING_ANIMATION_FRAMES = 34
-LOADING_FRAME_DELAY_MS = 90
+BANK = 0
+ASSET_PATH = "assets/dino_assets.png"
+INC_COLORS = True
+COLKEY = 0
 
-DINO_U = [0, 8, 16]
-DINO_V = 0
-DINO_W = 8
-DINO_H = 8
-DINO_COLKEY = 0
+BG_U = 0
+BG_V = 0
+BG_W = 96
+BG_H = 16
+BG_START_X = 32
+BG_STEP_PX = 1
+BG_STEP_MS = 75
+INTRO_STEP_MS = 75
 
-CLOUDS = [
-    (0, 16),
-    (8, 16),
-]
-CLOUD_W = 8
-CLOUD_H = 8
-CLOUD_COLKEY = 0
+DINO_RUN_FRAMES = (
+    (0, 24, 8, 8, 10, 7),
+    (16, 24, 8, 8, 10, 7),
+)
+DINO_JUMP_FRAMES = (
+    (33, 18, 7, 8, 11, 2),
+    (49, 16, 7, 8, 11, 0),
+    (49, 16, 7, 8, 11, 0),
+    (49, 16, 7, 8, 11, 0),
+    (33, 18, 7, 8, 11, 2),
+)
+DINO_DEAD_FRAME = (65, 18, 7, 8, 11, 7)
+RUN_ANIM_MS = 75
+JUMP_FRAME_MS = BG_STEP_MS
+JUMP_Y_FRAMES = (7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7)
 
-OBS_V = 24
-OBS_TYPES = [
-    {"u": 0, "hit_w": 7, "hit_h": 5},
-    {"u": 8, "hit_w": 6, "hit_h": 6},
-    {"u": 16, "hit_w": 3, "hit_h": 5},
-    {"u": 24, "hit_w": 6, "hit_h": 7},
-    {"u": 32, "hit_w": 5, "hit_h": 3},
-]
-OBS_DRAW_W = 8
-OBS_DRAW_H = 8
-OBS_COLKEY = 0
+GROUND_Y = 14
+SPAWN_GAP_BASE_MIN = 60
+SPAWN_GAP_BASE_MAX = 96
+SPAWN_GAP_SCORE_STEP = 100
+SPAWN_GAP_DECAY_PX = 4
+SPAWN_GAP_MIN_LIMIT = 42
+SPAWN_GAP_MAX_LIMIT = 66
+OBSTACLES = (
+    {"u": 80, "v": 27, "w": 7, "h": 5, "rank": 3},
+    {"u": 96, "v": 26, "w": 6, "h": 6, "rank": 2},
+    {"u": 109, "v": 27, "w": 3, "h": 5, "rank": 1},
+    {"u": 116, "v": 26, "w": 12, "h": 6, "rank": 4},
+)
 
-BG_TMX0 = 0
-BG_TMY0 = 0
-BG_W = 64
+SCORE_X = (11, 15, 19)
+SCORE_Y = 0
+SCORE_INTERVAL_MS = 500
+SCORE_SOUND_STEP = 20
+BONUS_POINTS = 100
+BONUS_RANK = 4
+BONUS_BLINK_MS = 180
+BONUS_BLINK_PHASES = 4
+
+SOUND_VOLUME = 100
+SOUND_PACKETS_PER_UPDATE = 5
+JUMP_SOUND = "jump.ogg"
+HIT_SOUND = "hit.ogg"
+SCORE_SOUND = "score.ogg"
+
+TOUCH_EVENTS_PER_UPDATE = 8
+TOUCH_CLICK_EVENTS = ("click", "single", "single_click", "tap", "hit")
 
 COL_BLACK = 0
 COL_WHITE = 7
 COL_RED = 8
 COL_YELLOW = 10
-COL_GREEN = 11
-COL_GRAY = 13
 
 STATE_READY = "ready"
+STATE_STARTING = "starting"
 STATE_RUNNING = "running"
-STATE_PAUSED = "paused"
 STATE_GAME_OVER = "gameover"
 
-DIFFICULTY = {
-    "easy": {"speed": 0.48, "spawn_min": 95, "spawn_max": 140, "accel": 0.00015},
-    "normal": {"speed": 0.60, "spawn_min": 80, "spawn_max": 120, "accel": 0.00022},
-    "hard": {"speed": 0.76, "spawn_min": 62, "spawn_max": 100, "accel": 0.00032},
-}
+DIGITS_3X5 = (
+    (0b111, 0b101, 0b101, 0b101, 0b111),
+    (0b010, 0b110, 0b010, 0b010, 0b111),
+    (0b111, 0b001, 0b111, 0b100, 0b111),
+    (0b111, 0b001, 0b111, 0b001, 0b111),
+    (0b101, 0b101, 0b111, 0b001, 0b001),
+    (0b111, 0b100, 0b111, 0b001, 0b111),
+    (0b111, 0b100, 0b111, 0b101, 0b111),
+    (0b111, 0b001, 0b010, 0b010, 0b010),
+    (0b111, 0b101, 0b111, 0b101, 0b111),
+    (0b111, 0b101, 0b111, 0b001, 0b111),
+)
+
+
+def ticks_ms():
+    return time.ticks_ms()
+
+
+def ticks_diff(a, b):
+    return time.ticks_diff(a, b)
 
 
 class DinoRunnerApp:
     def __init__(self):
         self.ble = WebAppBleManager("DinoRunner", self.handle_ble_message)
-        self.touch = SimpleTouch(pin_no=TOUCH_PIN, active_high=True)
-        self.difficulty = "normal"
-        self.state = STATE_READY
-        self.best_score = 0
+        self.audio = audio_service.audio
+        self.audio_initialized = False
+        self.sound = PromptSoundPlayer(
+            audio=self.audio,
+            asset_root="assets",
+            debug=False,
+            log_prefix="[DinoSound]",
+            packets_per_update=SOUND_PACKETS_PER_UPDATE,
+            stop_handler=self.stop_sound,
+        )
         self.last_report_ms = 0
 
-        pyxel.init()
-        self.show_loading_screen()
-        pyxel.load(RES_PATH)
-        self.reset_world()
-
-    def show_loading_screen(self):
-        pyxel.images(LOADING_IMAGE_BANK).load_from_png(
-            LOADING_DINO_1_U,
-            LOADING_ASSET_V,
-            LOADING_DINO_1_PATH,
-            True,
-        )
-        pyxel.images(LOADING_IMAGE_BANK).load_from_png(
-            LOADING_DINO_2_U,
-            LOADING_ASSET_V,
-            LOADING_DINO_2_PATH,
-            True,
-        )
-        pyxel.images(LOADING_IMAGE_BANK).load_from_png(
-            LOADING_CACTUS_U,
-            LOADING_ASSET_V,
-            LOADING_CACTUS_PATH,
-            True,
-        )
-
-        for step in range(LOADING_ANIMATION_FRAMES):
-            progress = 1 + (step * LOADING_PROGRESS_W) // LOADING_ANIMATION_FRAMES
-            self.draw_loading_screen(progress, step)
-            time.sleep_ms(LOADING_FRAME_DELAY_MS)
-
-        self.draw_loading_screen(LOADING_PROGRESS_W, LOADING_ANIMATION_FRAMES)
-
-    def draw_loading_screen(self, progress, frame):
-        pyxel.cls(COL_BLACK)
-        dino_u = LOADING_DINO_1_U if frame % 2 == 0 else LOADING_DINO_2_U
-        pyxel.blt(
-            LOADING_DINO_X,
-            LOADING_ASSET_Y,
-            LOADING_IMAGE_BANK,
-            dino_u,
-            LOADING_ASSET_V,
-            LOADING_ASSET_SIZE,
-            LOADING_ASSET_SIZE,
-            COL_BLACK,
-        )
-        pyxel.blt(
-            LOADING_CACTUS_X,
-            LOADING_ASSET_Y,
-            LOADING_IMAGE_BANK,
-            LOADING_CACTUS_U,
-            LOADING_ASSET_V,
-            LOADING_ASSET_SIZE,
-            LOADING_ASSET_SIZE,
-            COL_BLACK,
-        )
-        pyxel.rect(
-            LOADING_PROGRESS_X,
-            LOADING_PROGRESS_Y,
-            max(0, min(LOADING_PROGRESS_W, progress)),
-            LOADING_PROGRESS_H,
-            COL_WHITE,
-        )
-        pyxel.render_graphics()
-
-    def reset_world(self):
-        cfg = DIFFICULTY.get(self.difficulty, DIFFICULTY["normal"])
-
-        self.wx = 0
-        self.base_scroll_speed = cfg["speed"]
-        self.scroll_speed = cfg["speed"]
-        self.scroll_acc = 0.0
-        self.speed_accel = cfg["accel"]
-
-        self.ground_y = SCR_H - DINO_H
-        self.dino_x = 6
-        self.dino_y = self.ground_y
-
-        self.on_ground = True
-        self.jump_t = 0
-        self.jump_apex = 9
-        self.jump_len = 34
-
-        self.walk_frame = 0
-        self.walk_tick = 0
-        self.walk_period = 6
-
-        self.clouds = []
-        self.cloud_spawn_cd = 0
-
-        self.obstacles = []
-        self.obs_spawn_cd = 0
-        self.obs_spawn_min = cfg["spawn_min"]
-        self.obs_spawn_max = cfg["spawn_max"]
-        self.obs_gap_min = 10
-
-        self.score = 0
-        self.t0 = pyxel.frame_count
+        pyxel.init(start_audio=False)
+        self.clear_touch_events()
+        pyxel.images(BANK).load_from_png(0, 0, ASSET_PATH, INC_COLORS)
+        self.prepare_sound()
+        self.reset_world(STATE_READY)
 
     def start(self):
         self.ble.start()
-        self.report_event("dinoReady")
+        self.report_event("dinoReady", force=True)
         pyxel.run(self.update, self.draw, fps=FPS, on_exit=self.on_exit)
 
     def on_exit(self, rt, reason, exc):
+        try:
+            self.sound.deinit()
+        except Exception:
+            pass
+        if self.audio_initialized:
+            try:
+                self.audio.deinit()
+            except Exception:
+                pass
+            self.audio_initialized = False
         try:
             pyxel.destroy()
         except Exception:
             pass
         self.ble.deinit()
 
+    def reset_world(self, state=STATE_RUNNING):
+        now = ticks_ms()
+        self.state = state
+        self.bg_scroll = 0
+        self.last_bg_step_ms = now
+        self.run_anim_index = 0
+        self.last_run_anim_ms = now
+        self.jump_started_ms = 0
+        self.last_jump_frame_ms = now
+        self.jump_index = -1
+        self.obstacles = []
+        self.next_spawn_px = SPAWN_GAP_BASE_MIN
+        self.last_pressed = False
+        self.suppress_next_click = False
+        self.score = 0
+        self.last_score_ms = now
+        self.last_score_sound = 0
+        self.bonus_started_ms = 0
+        self.bonus_pending = 0
+        self.collision_obstacle = None
+        self.dead_x = 10
+        self.dead_y = 7
+
     def handle_ble_message(self, conn, message):
         request_id = message.get("id")
         method = message.get("method")
-
         try:
             if method == "mpyPing":
                 self.ble.reply(request_id, True, conn=conn)
                 return
-            if method == "dinoJump":
+            if method in ("jump", "dinoJump"):
                 self.jump()
-            elif method == "dinoRestart":
+            elif method in ("restart", "dinoRestart"):
                 self.restart()
-            elif method == "dinoPause":
-                self.pause()
-            elif method == "dinoResume":
-                self.resume()
-            elif method == "dinoSetConfig":
-                params = message.get("params") or {}
-                self.set_difficulty(params.get("difficulty") or "normal")
+            elif method in ("getState", "dinoGetState"):
+                self.report_event("dinoState", force=True)
             else:
+                self.ble.reply(request_id, False, error="unknown method", conn=conn)
                 return
-
             self.ble.reply(request_id, True, conn=conn)
-            self.report_state(force=True)
+            self.report_event("dinoState", force=True)
         except Exception as exc:
             print("[DinoRunner] BLE command error:", exc)
-            self.ble.reply(request_id, False, str(exc), conn=conn)
-
-    def set_difficulty(self, difficulty):
-        if difficulty not in DIFFICULTY:
-            difficulty = "normal"
-        self.difficulty = difficulty
-        self.restart()
+            self.ble.reply(request_id, False, error=str(exc), conn=conn)
 
     def restart(self):
-        self.reset_world()
+        self.reset_world(STATE_RUNNING)
+
+    def start_intro(self):
+        self.reset_world(STATE_STARTING)
+
+    def begin_running(self):
+        now = ticks_ms()
         self.state = STATE_RUNNING
-
-    def pause(self):
-        if self.state == STATE_RUNNING:
-            self.state = STATE_PAUSED
-
-    def resume(self):
-        if self.state in (STATE_READY, STATE_PAUSED):
-            self.state = STATE_RUNNING
-        elif self.state == STATE_GAME_OVER:
-            self.restart()
+        self.bg_scroll = SCR_W
+        self.last_bg_step_ms = now
+        self.last_score_ms = now
+        self.obstacles = []
+        self.next_spawn_px = SPAWN_GAP_BASE_MIN
 
     def jump(self):
         if self.state == STATE_READY:
-            self.state = STATE_RUNNING
-        if self.state != STATE_RUNNING:
+            self.start_intro()
             return
-        if self.on_ground:
-            self.on_ground = False
-            self.jump_t = 0
-
-    def apply_jump(self):
-        t = self.jump_t
-        n = self.jump_len
-
-        if t >= n:
-            self.on_ground = True
-            self.dino_y = self.ground_y
+        if self.state == STATE_GAME_OVER:
+            self.restart()
             return
-
-        p = t / (n - 1)
-        k = 4 * p * (1 - p)
-        dy = int(self.jump_apex * k + 0.5)
-        y = self.ground_y - dy
-        self.dino_y = max(0, y)
-        self.jump_t += 1
-
-    def spawn_cloud(self):
-        u, v = random.choice(CLOUDS)
-        max_y = max(0, SCR_H - CLOUD_H)
-        self.clouds.append({
-            "x": SCR_W + random.randint(0, 10),
-            "y": random.randint(0, max_y),
-            "u": u,
-            "v": v,
-            "spd": 1,
-            "period": random.randint(4, 8),
-            "tick": 0,
-        })
-
-    def update_clouds(self):
-        if self.cloud_spawn_cd <= 0:
-            self.cloud_spawn_cd = random.randint(24, 60)
-            self.spawn_cloud()
-        else:
-            self.cloud_spawn_cd -= 1
-
-        alive = []
-        for cloud in self.clouds:
-            cloud["tick"] += 1
-            if cloud["tick"] >= cloud["period"]:
-                cloud["tick"] = 0
-                cloud["x"] -= cloud["spd"]
-            if cloud["x"] > -CLOUD_W:
-                alive.append(cloud)
-        self.clouds = alive
-
-    def spawn_obstacle(self):
-        if self.obstacles:
-            rightmost = max(obstacle["x"] for obstacle in self.obstacles)
-            if rightmost > SCR_W + self.obs_gap_min:
-                return
-
-        self.obstacles.append({
-            "x": float(SCR_W + 2),
-            "tp": random.choice(OBS_TYPES),
-        })
-
-    def update_obstacles(self, dx_world):
-        if self.obs_spawn_cd <= 0:
-            self.obs_spawn_cd = random.randint(self.obs_spawn_min, self.obs_spawn_max)
-            self.spawn_obstacle()
-        else:
-            self.obs_spawn_cd -= 1
-
-        if dx_world != 0:
-            for obstacle in self.obstacles:
-                obstacle["x"] -= dx_world
-
-        self.obstacles = [obstacle for obstacle in self.obstacles if obstacle["x"] > -OBS_DRAW_W]
-
-    def check_collision(self):
-        dx = self.dino_x + 1
-        dy = self.dino_y + 1
-        dw = DINO_W - 2
-        dh = DINO_H - 2
-
-        for obstacle in self.obstacles:
-            tp = obstacle["tp"]
-            ow = tp["hit_w"]
-            oh = tp["hit_h"]
-            ox = int(obstacle["x"]) + (OBS_DRAW_W - ow) // 2
-            oy = self.ground_y + (OBS_DRAW_H - oh)
-
-            if dx < ox + ow and dx + dw > ox and dy < oy + oh and dy + dh > oy:
-                return True
-        return False
+        if self.state != STATE_RUNNING or self.jump_index >= 0:
+            return
+        now = ticks_ms()
+        self.jump_started_ms = now
+        self.last_jump_frame_ms = now
+        self.jump_index = 1
+        self.play_sound(JUMP_SOUND, interrupt=True)
 
     def update(self, rt):
-        self.ble.poll()
-        self.touch.update()
         self.update_touch()
+        self.ble.poll()
+        self.sound.update(budget_packets=SOUND_PACKETS_PER_UPDATE)
 
-        if self.state == STATE_RUNNING:
+        if self.state == STATE_READY:
+            self.update_ready_animation()
+        elif self.state == STATE_STARTING:
+            self.update_starting_animation()
+        elif self.state == STATE_RUNNING:
             self.update_game()
 
         self.report_state()
 
     def update_touch(self):
-        while True:
-            event = self.touch.get()
+        pressed = self.button_is_pressed()
+        if pressed and not self.last_pressed:
+            self.jump()
+            self.suppress_next_click = True
+        self.last_pressed = pressed
+
+        for _ in range(TOUCH_EVENTS_PER_UPDATE):
+            event = touch_events.get()
             if event is None:
                 break
-            if event == "click" or event == "hit":
+            if self.normalize_touch_event(event) == "click":
+                if self.suppress_next_click:
+                    self.suppress_next_click = False
+                    continue
                 self.jump()
-            elif event == "double":
-                self.restart()
+
+    def button_is_pressed(self):
+        try:
+            return bool(touch_events.is_pressed())
+        except Exception:
+            return False
+
+    def normalize_touch_event(self, event):
+        try:
+            name = str(event).strip().lower()
+        except Exception:
+            return None
+        if name in TOUCH_CLICK_EVENTS:
+            return "click"
+        return None
+
+    def update_ready_animation(self):
+        now = ticks_ms()
+        if ticks_diff(now, self.last_run_anim_ms) >= RUN_ANIM_MS:
+            self.last_run_anim_ms = now
+            self.run_anim_index ^= 1
+
+    def update_starting_animation(self):
+        now = ticks_ms()
+        while ticks_diff(now, self.last_bg_step_ms) >= INTRO_STEP_MS:
+            self.last_bg_step_ms = time.ticks_add(self.last_bg_step_ms, INTRO_STEP_MS)
+            if self.bg_scroll < SCR_W:
+                self.bg_scroll += BG_STEP_PX
+            if self.bg_scroll >= SCR_W:
+                self.begin_running()
+                break
+
+        if ticks_diff(now, self.last_run_anim_ms) >= RUN_ANIM_MS:
+            self.last_run_anim_ms = now
+            self.run_anim_index ^= 1
 
     def update_game(self):
-        if not self.on_ground:
-            self.apply_jump()
+        now = ticks_ms()
+        moved = False
+        while ticks_diff(now, self.last_bg_step_ms) >= BG_STEP_MS:
+            self.last_bg_step_ms = time.ticks_add(self.last_bg_step_ms, BG_STEP_MS)
+            self.bg_scroll = (self.bg_scroll + BG_STEP_PX) % BG_W
+            self.update_obstacles(BG_STEP_PX)
+            moved = True
 
-        self.scroll_speed += self.speed_accel
-        self.scroll_acc += self.scroll_speed
-        dx_world = self.scroll_speed
-        if self.scroll_acc >= 1.0:
-            step = int(self.scroll_acc)
-            self.scroll_acc -= step
-            self.wx += step
+        if ticks_diff(now, self.last_run_anim_ms) >= RUN_ANIM_MS:
+            self.last_run_anim_ms = now
+            self.run_anim_index ^= 1
 
-        if self.on_ground:
-            self.walk_tick += 1
-            if self.walk_tick >= self.walk_period:
-                self.walk_tick = 0
-                self.walk_frame ^= 1
+        if self.jump_index >= 0:
+            while ticks_diff(now, self.last_jump_frame_ms) >= JUMP_FRAME_MS:
+                self.last_jump_frame_ms = time.ticks_add(self.last_jump_frame_ms, JUMP_FRAME_MS)
+                self.jump_index += 1
+                if self.jump_index >= len(JUMP_Y_FRAMES):
+                    self.jump_index = -1
+                    break
 
-        self.update_clouds()
-        self.update_obstacles(dx_world)
-        self.score = (pyxel.frame_count - self.t0) // FPS
+        while ticks_diff(now, self.last_score_ms) >= SCORE_INTERVAL_MS:
+            self.last_score_ms = time.ticks_add(self.last_score_ms, SCORE_INTERVAL_MS)
+            if self.score < 999:
+                self.score += 1
+                if self.score % SCORE_SOUND_STEP == 0 and self.score != self.last_score_sound:
+                    self.last_score_sound = self.score
+                    self.play_sound(SCORE_SOUND, interrupt=True)
 
-        if self.check_collision():
-            self.state = STATE_GAME_OVER
-            if self.score > self.best_score:
-                self.best_score = self.score
-            self.report_event("dinoGameOver", force=True)
+        self.update_bonus(now)
+        if moved and self.check_collision():
+            self.game_over()
+
+    def update_obstacles(self, step):
+        alive = []
+        for obstacle in self.obstacles:
+            obstacle["x"] -= step
+            self.check_obstacle_bonus(obstacle)
+            if obstacle["x"] > -obstacle["w"]:
+                alive.append(obstacle)
+        self.obstacles = alive
+
+        self.next_spawn_px -= step
+        if self.next_spawn_px <= 0:
+            self.spawn_obstacle()
+            self.next_spawn_px = random.randint(self.spawn_gap_min(), self.spawn_gap_max())
+
+    def difficulty_level(self):
+        return self.score // SPAWN_GAP_SCORE_STEP
+
+    def spawn_gap_min(self):
+        gap = SPAWN_GAP_BASE_MIN - self.difficulty_level() * SPAWN_GAP_DECAY_PX
+        if gap < SPAWN_GAP_MIN_LIMIT:
+            return SPAWN_GAP_MIN_LIMIT
+        return gap
+
+    def spawn_gap_max(self):
+        gap = SPAWN_GAP_BASE_MAX - self.difficulty_level() * SPAWN_GAP_DECAY_PX
+        if gap < SPAWN_GAP_MAX_LIMIT:
+            return SPAWN_GAP_MAX_LIMIT
+        return gap
+
+    def choose_obstacle_type(self):
+        roll = random.randint(1, 100)
+        if self.score < 25:
+            weights = (12, 22, 62, 4)
+        elif self.score < 70:
+            weights = (22, 30, 36, 12)
+        else:
+            weights = (28, 28, 22, 22)
+        total = 0
+        for i, weight in enumerate(weights):
+            total += weight
+            if roll <= total:
+                return OBSTACLES[i]
+        return OBSTACLES[0]
+
+    def spawn_obstacle(self):
+        tp = self.choose_obstacle_type()
+        self.obstacles.append({
+            "x": SCR_W,
+            "u": tp["u"],
+            "v": tp["v"],
+            "w": tp["w"],
+            "h": tp["h"],
+            "rank": tp["rank"],
+            "bonus_done": False,
+            "y": GROUND_Y - tp["h"] + 1,
+        })
+
+
+    def check_obstacle_bonus(self, obstacle):
+        if obstacle["rank"] != BONUS_RANK or obstacle["bonus_done"]:
+            return
+        dx, dy, dw, dh = self.dino_rect()
+        if obstacle["x"] + obstacle["w"] < dx:
+            obstacle["bonus_done"] = True
+            self.start_bonus()
+
+    def start_bonus(self):
+        if self.bonus_started_ms:
+            return
+        self.bonus_started_ms = ticks_ms()
+        self.bonus_pending = BONUS_POINTS
+
+    def update_bonus(self, now):
+        if not self.bonus_started_ms:
+            return
+        elapsed = ticks_diff(now, self.bonus_started_ms)
+        if elapsed < BONUS_BLINK_MS * BONUS_BLINK_PHASES:
+            return
+        self.score = min(999, self.score + self.bonus_pending)
+        self.bonus_started_ms = 0
+        self.bonus_pending = 0
+
+    def bonus_visible(self):
+        if not self.bonus_started_ms:
+            return False
+        elapsed = ticks_diff(ticks_ms(), self.bonus_started_ms)
+        if elapsed >= BONUS_BLINK_MS * BONUS_BLINK_PHASES:
+            return False
+        return (elapsed // BONUS_BLINK_MS) % 2 == 0
+
+    def current_dino_frame(self):
+        if self.jump_index >= 0:
+            y = JUMP_Y_FRAMES[self.jump_index]
+            frame = DINO_JUMP_FRAMES[0] if y == 2 else DINO_JUMP_FRAMES[1]
+            return (frame[0], frame[1], frame[2], frame[3], frame[4], y)
+        return DINO_RUN_FRAMES[self.run_anim_index]
+
+    def dino_rect(self):
+        frame = self.current_dino_frame()
+        x = frame[4] + 1
+        y = frame[5] + 1
+        return x, y, frame[2] - 2, frame[3] - 2
+
+    def check_collision(self):
+        dx, dy, dw, dh = self.dino_rect()
+        for obstacle in self.obstacles:
+            ox = int(obstacle["x"])
+            oy = obstacle["y"]
+            ow = obstacle["w"]
+            oh = obstacle["h"]
+            if dx < ox + ow and dx + dw > ox and dy < oy + oh and dy + dh > oy:
+                self.collision_obstacle = obstacle
+                return True
+        return False
+
+    def game_over(self):
+        frame = self.current_dino_frame()
+        self.dead_x = frame[4]
+        self.dead_y = frame[5]
+        self.state = STATE_GAME_OVER
+        self.play_sound(HIT_SOUND, interrupt=True)
+        self.report_event("dinoGameOver", force=True)
+
+    def draw(self, rt):
+        pyxel.cls(COL_BLACK)
+        if self.state != STATE_READY:
+            self.draw_background()
+            for obstacle in self.obstacles:
+                pyxel.blt(int(obstacle["x"]), obstacle["y"], BANK,
+                          obstacle["u"], obstacle["v"], obstacle["w"], obstacle["h"], COLKEY)
+            if self.state == STATE_RUNNING:
+                self.draw_score()
+        self.draw_dino()
+        if self.state == STATE_GAME_OVER:
+            pyxel.text(8, 0, "OVER", COL_RED)
+
+    def draw_background(self):
+        x0 = BG_START_X - self.bg_scroll
+        if self.state == STATE_STARTING:
+            pyxel.blt(x0, 0, BANK, BG_U, BG_V, BG_W, BG_H, COLKEY)
+            return
+        for dx in (-BG_W, 0, BG_W):
+            x = x0 + dx
+            if x < SCR_W and x + BG_W > 0:
+                pyxel.blt(x, 0, BANK, BG_U, BG_V, BG_W, BG_H, COLKEY)
+
+
+
+    def draw_dino(self):
+        if self.state == STATE_GAME_OVER:
+            frame = DINO_DEAD_FRAME
+            pyxel.blt(self.dead_x, self.dead_y, BANK, frame[0], frame[1], frame[2], frame[3], COLKEY)
+            return
+        frame = self.current_dino_frame()
+        pyxel.blt(frame[4], frame[5], BANK, frame[0], frame[1], frame[2], frame[3], COLKEY)
+
+    def draw_score(self):
+        if self.bonus_started_ms:
+            if self.bonus_visible():
+                self.draw_plus(SCORE_X[0] - 4, SCORE_Y, COL_YELLOW)
+                self.draw_digit(SCORE_X[0], SCORE_Y, 1, COL_YELLOW)
+                self.draw_digit(SCORE_X[1], SCORE_Y, 0, COL_YELLOW)
+                self.draw_digit(SCORE_X[2], SCORE_Y, 0, COL_YELLOW)
+            return
+        score = min(999, self.score)
+        hundreds = score // 100
+        tens = (score // 10) % 10
+        ones = score % 10
+        self.draw_digit(SCORE_X[0], SCORE_Y, hundreds, COL_RED)
+        self.draw_digit(SCORE_X[1], SCORE_Y, tens, COL_RED)
+        self.draw_digit(SCORE_X[2], SCORE_Y, ones, COL_RED)
+
+    def draw_plus(self, x, y, color):
+        pyxel.pset(x + 1, y + 1, color)
+        pyxel.pset(x, y + 2, color)
+        pyxel.pset(x + 1, y + 2, color)
+        pyxel.pset(x + 2, y + 2, color)
+        pyxel.pset(x + 1, y + 3, color)
+
+    def draw_digit(self, x, y, digit, color):
+        rows = DIGITS_3X5[digit]
+        for yy in range(5):
+            bits = rows[yy]
+            for xx in range(3):
+                if bits & (1 << (2 - xx)):
+                    pyxel.pset(x + xx, y + yy, color)
+
+    def prepare_sound(self):
+        if not self.ensure_audio():
+            return False
+        ok = True
+        for path in (JUMP_SOUND, HIT_SOUND, SCORE_SOUND):
+            if not self.sound.preload(path):
+                print("[DinoRunner] preload sound failed:", path, self.sound.last_error)
+                ok = False
+        return ok
+
+    def play_sound(self, path, interrupt=True):
+        if not self.ensure_audio():
+            return False
+        ok = self.sound.play(path, interrupt=interrupt)
+        if not ok:
+            print("[DinoRunner] sound failed:", path, self.sound.last_error)
+        return ok
+
+    def stop_sound(self, player=None):
+        if player is None:
+            player = self.sound
+        return player.cancel()
+
+    def ensure_audio(self):
+        if self.audio_initialized:
+            return True
+        try:
+            self.audio.init(
+                enable_input=False,
+                enable_output=True,
+                with_opus_encoder=False,
+                with_opus_decoder=True,
+            )
+            self.audio.configure(output_volume=SOUND_VOLUME, input_gain=1.0)
+            self.audio_initialized = True
+            return True
+        except Exception as exc:
+            print("[DinoRunner] audio init failed:", exc)
+            return False
+
+    def clear_touch_events(self):
+        try:
+            touch_events.clear()
+        except Exception as exc:
+            print("[DinoRunner] touch clear failed:", exc)
 
     def report_state(self, force=False):
-        now = time.ticks_ms()
-        if not force and time.ticks_diff(now, self.last_report_ms) < 1000:
+        now = ticks_ms()
+        if not force and ticks_diff(now, self.last_report_ms) < 1000:
             return
         self.last_report_ms = now
         self.report_event("dinoState")
 
     def report_event(self, event, force=False):
+        if not force and not self.ble.connected:
+            return False
         payload = {
             "event": event,
             "state": self.state,
             "score": self.score,
-            "bestScore": self.best_score,
-            "difficulty": self.difficulty,
         }
-        self.ble.send(payload)
-
-    def draw(self, rt):
-        pyxel.cls(COL_BLACK)
-        self.draw_bg_loop()
-
-        for cloud in self.clouds:
-            pyxel.blt(cloud["x"], cloud["y"], 0, cloud["u"], cloud["v"], CLOUD_W, CLOUD_H, CLOUD_COLKEY)
-
-        for obstacle in self.obstacles:
-            tp = obstacle["tp"]
-            pyxel.blt(int(obstacle["x"]), self.ground_y, 0, tp["u"], OBS_V, OBS_DRAW_W, OBS_DRAW_H, OBS_COLKEY)
-
-        dino_u = DINO_U[self.walk_frame] if self.on_ground else DINO_U[2]
-        pyxel.blt(self.dino_x, self.dino_y, 0, dino_u, DINO_V, DINO_W, DINO_H, DINO_COLKEY)
-
-        if self.state == STATE_READY:
-            self.draw_center_text("GO", COL_GREEN)
-        elif self.state == STATE_PAUSED:
-            self.draw_center_text("PAU", COL_YELLOW)
-        elif self.state == STATE_GAME_OVER:
-            self.draw_center_text("END", COL_RED)
-        else:
-            self.draw_score()
-
-    def draw_bg_loop(self):
-        tile = 8
-        tiles_total = BG_W // tile
-        tile_x = (self.wx // tile) % tiles_total
-        sub = self.wx % tile
-        need_w = SCR_W + sub
-        max_w1 = (tiles_total - tile_x) * tile
-        w1 = min(need_w, max_w1)
-
-        pyxel.bltm(-sub, 0, 0, BG_TMX0 + tile_x, BG_TMY0, w1, SCR_H)
-        if w1 < need_w:
-            pyxel.bltm(-sub + w1, 0, 0, BG_TMX0, BG_TMY0, need_w - w1, SCR_H)
-
-    def draw_score(self):
-        text = "%02d" % min(99, self.score)
-        pyxel.text(0, 0, text, COL_WHITE)
-
-    def draw_center_text(self, text, color):
-        x = max(0, (SCR_W - len(text) * 4) // 2)
-        y = 5
-        pyxel.text(x, y, text, color)
+        return self.ble.send(payload)
 
 
 def appMain():
@@ -459,3 +584,4 @@ def appMain():
 
 if __name__ == "__main__":
     appMain()
+

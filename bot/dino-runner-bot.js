@@ -5,13 +5,13 @@ import { extname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BubbleBot, InlineKeyboard } from "../../jeejio-bubble/sdk/BubbleSDK.js";
 import PixelMug from "../../jeejio-bubble/devices/PixelMug_1.1.js";
-import { apiBaseUrl, configEnv, token } from "./config.js";
+import { apiBaseUrl, token } from "./config.dev.js";
 
 const staticPort = Number(process.env.WEBAPP_PORT || 8799);
 const webAppHost = process.env.WEBAPP_HOST || localAddressHint();
 const generatedWebAppUrl = `http://${webAppHost}:${staticPort}/index.html`;
 const mpsLaunchConfig = {
-  id: process.env.MPS_ID || "9898564609",
+  id: process.env.MPS_ID || "6670033921",
   version: process.env.MPS_VERSION || "0.0.2",
 };
 const webAppUrl = withMpsLaunchConfig(process.env.WEBAPP_URL || generatedWebAppUrl);
@@ -128,7 +128,6 @@ await bot.setCommands([
 await bot.start();
 
 console.log("mps-dino-runner bot is running.");
-console.log(`Bot config: ${configEnv}`);
 console.log(`WebApp URL: ${webAppUrl}`);
 
 function extractCommand(text) {
