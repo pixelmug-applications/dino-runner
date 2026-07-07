@@ -1,9 +1,9 @@
 import { computed, reactive, watch } from 'vue';
-import { hasJeeWebBridge, loadPixelMug } from '../template/bubbleClient';
+import { hasJeeWebBridge, loadPixelMug, sendDinoBestScoreToBot } from '../template/bubbleClient';
 import { openMpsApp } from '../template/mpsLaunch';
 import { useBleSession } from '../template/bleSession';
 import { t } from '../i18n';
-import type { AppStatus, DeviceInfo, DinoDifficulty, DinoGameState } from '../types';
+import type { AppStatus, DeviceInfo, DinoGameState } from '../types';
 
 type LaunchPhase = 'idle' | 'requesting' | 'preparing' | 'switching' | 'ready' | 'failed';
 type DinoEventMessage = {
@@ -11,10 +11,10 @@ type DinoEventMessage = {
   state?: DinoGameState;
   score?: number;
   bestScore?: number;
-  difficulty?: DinoDifficulty;
 };
 
 const BEST_SCORE_KEY = 'mps-dino-runner-best-score';
+const MAX_SCORE = 9999;
 
 const state = reactive({
   status: 'idle' as AppStatus,
@@ -24,8 +24,8 @@ const state = reactive({
   launchPhase: 'idle' as LaunchPhase,
   gameState: 'unknown' as DinoGameState,
   score: 0,
+  lastScore: 0,
   bestScore: loadBestScore(),
-  difficulty: 'normal' as DinoDifficulty,
   lastEvent: '',
 });
 
@@ -63,7 +63,7 @@ const stateLabel = computed(() => {
 watch(
   () => state.bestScore,
   (score) => {
-    localStorage.setItem(BEST_SCORE_KEY, String(Math.max(0, score || 0)));
+    localStorage.setItem(BEST_SCORE_KEY, String(clampScore(score)));
   },
 );
 
@@ -129,7 +129,6 @@ export function useDinoRunner() {
       state.bleState = ble.state.connection;
       state.status = 'connected';
       state.message = t('status.bleConnected');
-      await sendConfig();
     } catch (error) {
       state.status = 'error';
       state.message = errorMessage(error);
@@ -137,33 +136,23 @@ export function useDinoRunner() {
   }
 
   async function jump() {
-    await sendCommand('dinoJump');
+    const previousScore = state.score;
+    const restarting = state.gameState === 'gameover';
+    if (restarting) {
+      state.score = 0;
+      state.gameState = 'running';
+    }
+
+    const sent = await sendJumpCommand();
+    if (!sent && restarting) {
+      state.score = previousScore;
+      state.gameState = 'gameover';
+      return;
+    }
+
     if (!hasJeeWebBridge()) {
       mockRunning();
     }
-  }
-
-  async function restart() {
-    state.score = 0;
-    state.gameState = 'running';
-    await sendCommand('dinoRestart');
-  }
-
-  async function togglePause() {
-    if (state.gameState === 'paused') {
-      state.gameState = 'running';
-      await sendCommand('dinoResume');
-    } else {
-      state.gameState = 'paused';
-      await sendCommand('dinoPause');
-    }
-  }
-
-  async function setDifficulty(difficulty: DinoDifficulty) {
-    state.difficulty = difficulty;
-    state.score = 0;
-    state.gameState = 'running';
-    await sendConfig();
   }
 
   function bindBleState() {
@@ -191,57 +180,64 @@ export function useDinoRunner() {
     jump,
     openOnDevice,
     refreshDevice,
-    restart,
-    setDifficulty,
-    togglePause,
   };
 }
 
-async function sendConfig() {
-  await sendCommand('dinoSetConfig', {
-    difficulty: state.difficulty,
-  });
-}
-
-async function sendCommand(method: string, params?: Record<string, unknown>) {
+async function sendJumpCommand() {
   const target = state.device;
-  if (!target) return;
+  if (!target) return false;
 
-  state.status = 'syncing';
   const ble = getBle();
   try {
-    await ble.send(target, {
-      method,
-      id: `dino_${Date.now()}`,
-      params,
-    });
+    await ble.send(
+      target,
+      {
+        method: 'dinoJump',
+        id: `dino_${Date.now()}`,
+      },
+      {
+        expectResponse: false,
+        writeType: 'withoutResponse',
+        timeoutMillis: 1000,
+      },
+    );
     state.status = 'connected';
-    state.message = t('status.commandSent');
+    return true;
   } catch (error) {
     state.status = 'error';
     state.message = errorMessage(error);
+    return false;
   }
 }
 
 function handleBleData(event: { message?: unknown }) {
   const message = event.message as DinoEventMessage | undefined;
-  if (!message || !message.event) return;
+  if (!message || message.event !== 'dinoGameOver') return;
 
   state.lastEvent = message.event;
-  if (message.state) state.gameState = message.state;
-  if (typeof message.score === 'number') state.score = Math.max(0, message.score);
-  if (typeof message.bestScore === 'number') {
-    state.bestScore = Math.max(state.bestScore, message.bestScore);
+  state.gameState = 'gameover';
+  if (typeof message.score === 'number') {
+    state.score = clampScore(message.score);
   }
-  if (message.difficulty) state.difficulty = message.difficulty;
-  if (message.event === 'dinoGameOver') {
+  state.lastScore = state.score;
+  if (typeof message.bestScore === 'number') {
+    state.bestScore = Math.max(state.bestScore, clampScore(message.bestScore));
+  } else {
     state.bestScore = Math.max(state.bestScore, state.score);
   }
+
+  sendDinoBestScoreToBot({
+    event: 'dinoGameOver',
+    score: state.score,
+    lastScore: state.lastScore,
+    bestScore: state.bestScore,
+    reportedAt: Date.now(),
+  });
 }
 
 function mockRunning() {
   state.gameState = 'running';
-  state.score += 1;
+  state.score = clampScore(state.score + 1);
   state.bestScore = Math.max(state.bestScore, state.score);
 }
 
@@ -266,7 +262,12 @@ function updateLaunchPhase(phase: LaunchPhase) {
 
 function loadBestScore() {
   const value = Number(localStorage.getItem(BEST_SCORE_KEY) || 0);
-  return Number.isFinite(value) ? Math.max(0, value) : 0;
+  return clampScore(value);
+}
+
+function clampScore(value: unknown) {
+  const next = Math.floor(Number(value));
+  return Number.isFinite(next) ? Math.max(0, Math.min(MAX_SCORE, next)) : 0;
 }
 
 function errorMessage(error: unknown) {

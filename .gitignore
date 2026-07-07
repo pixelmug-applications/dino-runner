@@ -1,5 +1,6 @@
 bot/config.dev.js
 bot/config.pub.js
+prompt.txt
 
 # Dependencies
 node_modules/

@@ -21,7 +21,7 @@ type MessageKey =
   | 'status.bleConnected'
   | 'status.commandSent'
   | 'status.unknownError'
-  | 'game.current'
+  | 'game.last'
   | 'game.best'
   | 'game.status'
   | 'game.difficulty'
@@ -62,7 +62,7 @@ const messages: Record<AppLocale, Record<MessageKey, string>> = {
     'status.bleConnected': 'BLE \u5df2\u8fde\u63a5\u3002',
     'status.commandSent': '\u547d\u4ee4\u5df2\u53d1\u9001\u3002',
     'status.unknownError': '\u672a\u77e5\u9519\u8bef',
-    'game.current': '\u5f53\u524d',
+    'game.last': '\u4e0a\u6b21',
     'game.best': '\u6700\u9ad8',
     'game.status': '\u72b6\u6001',
     'game.difficulty': '\u96be\u5ea6',
@@ -102,7 +102,7 @@ const messages: Record<AppLocale, Record<MessageKey, string>> = {
     'status.bleConnected': 'BLE connected.',
     'status.commandSent': 'Command sent.',
     'status.unknownError': 'Unknown error',
-    'game.current': 'Current',
+    'game.last': 'Last',
     'game.best': 'Best',
     'game.status': 'Status',
     'game.difficulty': 'Difficulty',

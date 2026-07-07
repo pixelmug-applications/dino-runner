@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue';
+﻿import { computed, reactive } from 'vue';
 import type { DeviceInfo } from '../types';
 import { getWebApp, hasJeeWebBridge } from './bubbleClient';
 
@@ -12,7 +12,6 @@ const BLE_CONNECT_TIMEOUT_MS = 15000;
 const BLE_CONNECT_TIMEOUT_MESSAGE = 'connecting ble time out.';
 const BLE_CONNECTING_MESSAGE = 'Connecting BLE...';
 const BLE_DISCONNECTED_MESSAGE = 'BLE disconnected.';
-const PROBE_TIMEOUT_MS = 1200;
 
 const state = reactive({
   connection: 'idle',
@@ -152,11 +151,6 @@ export function useBleSession() {
 }
 
 async function runConnectAttempt(device: DeviceInfo, attemptId: number) {
-  if (await probeExistingConnection(device)) {
-    markConnectReady(attemptId);
-    return { state: READY_STATE, reused: true };
-  }
-
   const result = await getWebApp().ble!.connect(device, {
     timeoutSeconds: BLE_CONNECT_TIMEOUT_MS / 1000,
     waitForReady: false,
@@ -209,21 +203,6 @@ function normalizeConnectionState(value: string) {
   return READY_STATES.has(value) ? READY_STATE : value;
 }
 
-async function probeExistingConnection(device: DeviceInfo) {
-  try {
-    await getWebApp().ble!.send(device, {
-      method: 'mpyPing',
-      id: `ping_${Date.now()}`,
-    }, {
-      writeType: 'withResponse',
-      timeoutMillis: PROBE_TIMEOUT_MS,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function waitForBridgeState(timeoutMs: number) {
   const ble = getWebApp().ble!;
   const current = normalizeConnectionState(String((ble as { state?: string }).state || 'unknown'));
@@ -254,3 +233,4 @@ function waitForBridgeState(timeoutMs: number) {
     ble.onState(listener);
   });
 }
+

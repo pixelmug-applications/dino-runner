@@ -1,6 +1,6 @@
-﻿{
+{
   "name": "dino-runner",
-  "version": "0.0.3",
+  "version": "1.0.5",
   "description": "PixelMug dinosaur runner game.",
   "author": "jeejio",
   "category": "Game",
@@ -16,7 +16,11 @@
     {
       "name": "audio_service",
       "version": ">=1.0.0"
-    }
+    },
+    {
+      "name": "mpy_button",
+      "version": ">=1.0.0"
+    }    
   ],
   "date": "2026-07-05"
 }

@@ -1,69 +1,76 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { LOADING_IMAGE } from '../assets';
 import { t } from '../i18n';
 import { useDinoRunner } from '../state/dinoRunner';
-import type { DinoDifficulty } from '../types';
 
 const store = useDinoRunner();
-const difficulties = computed<Array<{ id: DinoDifficulty; label: string }>>(() => [
-  { id: 'easy', label: t('game.easy') },
-  { id: 'normal', label: t('game.normal') },
-  { id: 'hard', label: t('game.hard') },
-]);
+const showStartText = computed(() => store.state.gameState === 'gameover');
+const isPressed = ref(false);
+let pressTimer: number | undefined;
 
-const pauseLabel = computed(() => (store.state.gameState === 'paused' ? t('game.resume') : t('game.pause')));
+function clearPressTimer() {
+  if (pressTimer === undefined) return;
+  window.clearTimeout(pressTimer);
+  pressTimer = undefined;
+}
+
+function setPressed(value: boolean) {
+  if (!store.canSend.value) return;
+  clearPressTimer();
+  isPressed.value = value;
+}
+
+function releasePressed(delay = 120) {
+  clearPressTimer();
+  pressTimer = window.setTimeout(() => {
+    isPressed.value = false;
+    pressTimer = undefined;
+  }, delay);
+}
+
+function handleJump() {
+  if (!store.canSend.value) return;
+  setPressed(true);
+  releasePressed(160);
+  store.jump();
+}
+
+onBeforeUnmount(clearPressTimer);
 </script>
 
 <template>
   <main class="game-page">
-    <section class="score-strip">
-      <div>
-        <span>{{ t('game.current') }}</span>
-        <strong>{{ store.state.score }}</strong>
-      </div>
-      <div>
-        <span>{{ t('game.best') }}</span>
-        <strong>{{ store.state.bestScore }}</strong>
-      </div>
-      <div>
-        <span>{{ t('game.status') }}</span>
-        <strong>{{ store.stateLabel.value }}</strong>
-      </div>
-    </section>
-
-    <section class="pixel-stage" aria-hidden="true">
-      <div class="stage-sky">
-        <span class="stage-cloud cloud-a" />
-        <span class="stage-cloud cloud-b" />
-      </div>
-      <span class="stage-dino" />
-      <span class="stage-cactus cactus-a" />
-      <span class="stage-cactus cactus-b" />
-      <span class="stage-ground" />
-    </section>
-
-    <section class="difficulty-control" :aria-label="t('game.difficulty')">
+    <section class="jump-hero">
       <button
-        v-for="item in difficulties"
-        :key="item.id"
-        :class="{ selected: store.state.difficulty === item.id }"
-        @click="store.setDifficulty(item.id)"
+        class="jump-icon-button"
+        :class="{ 'is-text': showStartText, 'is-pressed': isPressed }"
+        :disabled="!store.canSend.value"
+        :aria-label="showStartText ? 'Press to Start' : t('game.jump')"
+        @pointerdown="setPressed(true)"
+        @pointerup="releasePressed()"
+        @pointercancel="releasePressed(0)"
+        @pointerleave="releasePressed(0)"
+        @click="handleJump"
       >
-        {{ item.label }}
+        <span v-if="showStartText" class="start-words">
+          <span>Press</span>
+          <span>to</span>
+          <span>Start</span>
+        </span>
+        <img v-else :src="LOADING_IMAGE" alt="" />
       </button>
     </section>
 
-    <button class="jump-pad" :disabled="!store.canSend.value" @click="store.jump">
-      {{ t('game.jump') }}
-    </button>
-
-    <section class="game-actions">
-      <button @click="store.restart">{{ t('game.restart') }}</button>
-      <button @click="store.togglePause">{{ pauseLabel }}</button>
+    <section class="score-strip game-score-strip">
+      <div>
+        <span>{{ t('game.last') }}</span>
+        <strong class="last-score-value">{{ store.state.lastScore }}</strong>
+      </div>
+      <div>
+        <span>{{ t('game.best') }}</span>
+        <strong class="best-score-value">{{ store.state.bestScore }}</strong>
+      </div>
     </section>
-
-    <p v-if="store.statusText.value" :class="store.state.status === 'error' ? 'game-message error' : 'game-message'">
-      {{ store.statusText.value }}
-    </p>
   </main>
 </template>

@@ -28,6 +28,22 @@ export type DeviceEventPayload = {
   };
 };
 
+export type DinoBestScorePayload = {
+  event: 'dinoGameOver';
+  score: number;
+  lastScore: number;
+  bestScore: number;
+  reportedAt: number;
+};
+
+type WebAppDataSender = BubbleWebApp & {
+  sendSystemData(
+    type: string,
+    payload?: Record<string, unknown>,
+    options?: { callback?: (ack: unknown) => void },
+  ): unknown;
+};
+
 const PixelMug = PixelMugModule as unknown as { new (): PixelMugInstance };
 const pixelMugSdk = new PixelMug();
 let webapp: BubbleWebApp | null = null;
@@ -72,6 +88,23 @@ export async function loadPixelMug() {
 export async function subscribePixelMugEvents(device: DeviceInfo) {
   if (!hasJeeWebBridge()) return;
   await getWebApp().subscribeDeviceEvents(device);
+}
+
+export function sendDinoBestScoreToBot(payload: DinoBestScorePayload) {
+  if (!hasJeeWebBridge()) return;
+
+  try {
+    (getWebApp() as WebAppDataSender).sendSystemData('app.dinoBestScore', payload, {
+      callback: (ack: unknown) => {
+        const code = Number((ack as { code?: unknown } | undefined)?.code ?? 200);
+        if (Number.isFinite(code) && code >= 400) {
+          console.warn('[dino-runner] failed to sync best score to bot', ack);
+        }
+      },
+    });
+  } catch (error) {
+    console.warn('[dino-runner] failed to sync best score to bot', error);
+  }
 }
 
 export function onPixelMugEvent(handler: (event: DeviceEventPayload) => void) {

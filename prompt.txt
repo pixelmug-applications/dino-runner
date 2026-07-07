@@ -46,7 +46,8 @@
 每得20分，播放提示音：score.ogg
 
 //////////////////////////
-你需要转成audio_service支持的提示音。用户环境下有ffmpeg，你要把三个声音的音量提到一致，并且音量要大一点。转码参数：Ogg Opus、48000 Hz、mono、libopus、96k VBR、application=audio、20 ms frame，尽量保留短音效的瞬态和清晰度，峰值音量归一到 max_volume = -12 dBFS
+你需要转成audio_service支持的提示音。ffmpeg在 Winget 安装的 FFmpeg 目录。
+你要把三个声音的音量提到一致，并且音量要大一点。转码参数：Ogg Opus、48000 Hz、mono、libopus、96k VBR、application=audio、20 ms frame，尽量保留短音效的瞬态和清晰度，峰值音量归一到 max_volume = -12 dBFS
 
 
 

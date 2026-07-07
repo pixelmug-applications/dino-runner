@@ -44,7 +44,14 @@ DINO_JUMP_FRAMES = (
 DINO_DEAD_FRAME = (65, 18, 7, 8, 11, 7)
 RUN_ANIM_MS = 75
 JUMP_FRAME_MS = BG_STEP_MS
-JUMP_Y_FRAMES = (7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7)
+JUMP_Y_FRAMES_EMPTY = (7, 6, 5, 5, 6, 7)
+JUMP_Y_FRAMES_BY_RANK = (
+    (),
+    (7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7),
+    (7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7),
+    (7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7),
+    (7, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 7),
+)
 
 GROUND_Y = 14
 SPAWN_GAP_BASE_MIN = 60
@@ -60,8 +67,9 @@ OBSTACLES = (
     {"u": 116, "v": 26, "w": 12, "h": 6, "rank": 4},
 )
 
-SCORE_X = (11, 15, 19)
+SCORE_X = (7, 11, 15, 19)
 SCORE_Y = 0
+SCORE_MAX = 9999
 SCORE_INTERVAL_MS = 500
 SCORE_SOUND_STEP = 20
 BONUS_POINTS = 100
@@ -74,6 +82,8 @@ SOUND_PACKETS_PER_UPDATE = 5
 JUMP_SOUND = "jump.ogg"
 HIT_SOUND = "hit.ogg"
 SCORE_SOUND = "score.ogg"
+PLUS_SOUND = "plus.ogg"
+SCORE_FILE = "dino_score.json"
 
 TOUCH_EVENTS_PER_UPDATE = 8
 TOUCH_CLICK_EVENTS = ("click", "single", "single_click", "tap", "hit")
@@ -123,7 +133,8 @@ class DinoRunnerApp:
             packets_per_update=SOUND_PACKETS_PER_UPDATE,
             stop_handler=self.stop_sound,
         )
-        self.last_report_ms = 0
+        self.last_round_score = 0
+        self.best_score = self.load_best_score()
 
         pyxel.init(start_audio=False)
         self.clear_touch_events()
@@ -133,7 +144,6 @@ class DinoRunnerApp:
 
     def start(self):
         self.ble.start()
-        self.report_event("dinoReady", force=True)
         pyxel.run(self.update, self.draw, fps=FPS, on_exit=self.on_exit)
 
     def on_exit(self, rt, reason, exc):
@@ -163,6 +173,7 @@ class DinoRunnerApp:
         self.jump_started_ms = 0
         self.last_jump_frame_ms = now
         self.jump_index = -1
+        self.jump_y_frames = JUMP_Y_FRAMES_EMPTY
         self.obstacles = []
         self.next_spawn_px = SPAWN_GAP_BASE_MIN
         self.last_pressed = False
@@ -180,20 +191,10 @@ class DinoRunnerApp:
         request_id = message.get("id")
         method = message.get("method")
         try:
-            if method == "mpyPing":
-                self.ble.reply(request_id, True, conn=conn)
-                return
-            if method in ("jump", "dinoJump"):
-                self.jump()
-            elif method in ("restart", "dinoRestart"):
-                self.restart()
-            elif method in ("getState", "dinoGetState"):
-                self.report_event("dinoState", force=True)
-            else:
+            if method not in ("jump", "dinoJump"):
                 self.ble.reply(request_id, False, error="unknown method", conn=conn)
                 return
-            self.ble.reply(request_id, True, conn=conn)
-            self.report_event("dinoState", force=True)
+            self.jump()
         except Exception as exc:
             print("[DinoRunner] BLE command error:", exc)
             self.ble.reply(request_id, False, error=str(exc), conn=conn)
@@ -226,7 +227,22 @@ class DinoRunnerApp:
         self.jump_started_ms = now
         self.last_jump_frame_ms = now
         self.jump_index = 1
+        self.jump_y_frames = self.choose_jump_y_frames()
         self.play_sound(JUMP_SOUND, interrupt=True)
+
+    def choose_jump_y_frames(self):
+        dino_x = DINO_RUN_FRAMES[0][4]
+        target = None
+        for obstacle in self.obstacles:
+            if obstacle["x"] + obstacle["w"] <= dino_x:
+                continue
+            if obstacle["x"] >= SCR_W:
+                continue
+            if target is None or obstacle["x"] < target["x"]:
+                target = obstacle
+        if target is None:
+            return JUMP_Y_FRAMES_EMPTY
+        return JUMP_Y_FRAMES_BY_RANK[target["rank"]]
 
     def update(self, rt):
         self.update_touch()
@@ -240,7 +256,6 @@ class DinoRunnerApp:
         elif self.state == STATE_RUNNING:
             self.update_game()
 
-        self.report_state()
 
     def update_touch(self):
         pressed = self.button_is_pressed()
@@ -311,13 +326,13 @@ class DinoRunnerApp:
             while ticks_diff(now, self.last_jump_frame_ms) >= JUMP_FRAME_MS:
                 self.last_jump_frame_ms = time.ticks_add(self.last_jump_frame_ms, JUMP_FRAME_MS)
                 self.jump_index += 1
-                if self.jump_index >= len(JUMP_Y_FRAMES):
+                if self.jump_index >= len(self.jump_y_frames):
                     self.jump_index = -1
                     break
 
         while ticks_diff(now, self.last_score_ms) >= SCORE_INTERVAL_MS:
             self.last_score_ms = time.ticks_add(self.last_score_ms, SCORE_INTERVAL_MS)
-            if self.score < 999:
+            if self.score < SCORE_MAX:
                 self.score += 1
                 if self.score % SCORE_SOUND_STEP == 0 and self.score != self.last_score_sound:
                     self.last_score_sound = self.score
@@ -398,6 +413,7 @@ class DinoRunnerApp:
             return
         self.bonus_started_ms = ticks_ms()
         self.bonus_pending = BONUS_POINTS
+        self.play_sound(PLUS_SOUND, interrupt=True)
 
     def update_bonus(self, now):
         if not self.bonus_started_ms:
@@ -405,7 +421,7 @@ class DinoRunnerApp:
         elapsed = ticks_diff(now, self.bonus_started_ms)
         if elapsed < BONUS_BLINK_MS * BONUS_BLINK_PHASES:
             return
-        self.score = min(999, self.score + self.bonus_pending)
+        self.score = min(SCORE_MAX, self.score + self.bonus_pending)
         self.bonus_started_ms = 0
         self.bonus_pending = 0
 
@@ -419,7 +435,7 @@ class DinoRunnerApp:
 
     def current_dino_frame(self):
         if self.jump_index >= 0:
-            y = JUMP_Y_FRAMES[self.jump_index]
+            y = self.jump_y_frames[self.jump_index]
             frame = DINO_JUMP_FRAMES[0] if y == 2 else DINO_JUMP_FRAMES[1]
             return (frame[0], frame[1], frame[2], frame[3], frame[4], y)
         return DINO_RUN_FRAMES[self.run_anim_index]
@@ -448,7 +464,7 @@ class DinoRunnerApp:
         self.dead_y = frame[5]
         self.state = STATE_GAME_OVER
         self.play_sound(HIT_SOUND, interrupt=True)
-        self.report_event("dinoGameOver", force=True)
+        self.finish_round()
 
     def draw(self, rt):
         pyxel.cls(COL_BLACK)
@@ -491,13 +507,15 @@ class DinoRunnerApp:
                 self.draw_digit(SCORE_X[1], SCORE_Y, 0, COL_YELLOW)
                 self.draw_digit(SCORE_X[2], SCORE_Y, 0, COL_YELLOW)
             return
-        score = min(999, self.score)
-        hundreds = score // 100
+        score = min(SCORE_MAX, self.score)
+        thousands = score // 1000
+        hundreds = (score // 100) % 10
         tens = (score // 10) % 10
         ones = score % 10
-        self.draw_digit(SCORE_X[0], SCORE_Y, hundreds, COL_RED)
-        self.draw_digit(SCORE_X[1], SCORE_Y, tens, COL_RED)
-        self.draw_digit(SCORE_X[2], SCORE_Y, ones, COL_RED)
+        self.draw_digit(SCORE_X[0], SCORE_Y, thousands, COL_RED)
+        self.draw_digit(SCORE_X[1], SCORE_Y, hundreds, COL_RED)
+        self.draw_digit(SCORE_X[2], SCORE_Y, tens, COL_RED)
+        self.draw_digit(SCORE_X[3], SCORE_Y, ones, COL_RED)
 
     def draw_plus(self, x, y, color):
         pyxel.pset(x + 1, y + 1, color)
@@ -560,22 +578,42 @@ class DinoRunnerApp:
         except Exception as exc:
             print("[DinoRunner] touch clear failed:", exc)
 
-    def report_state(self, force=False):
-        now = ticks_ms()
-        if not force and ticks_diff(now, self.last_report_ms) < 1000:
-            return
-        self.last_report_ms = now
-        self.report_event("dinoState")
+    def finish_round(self):
+        self.last_round_score = self.score
+        if self.score > self.best_score:
+            self.best_score = self.score
+        self.save_score_record(self.last_round_score, self.best_score)
+        self.report_game_over()
 
-    def report_event(self, event, force=False):
-        if not force and not self.ble.connected:
+    def report_game_over(self):
+        if not self.ble.connected:
             return False
-        payload = {
-            "event": event,
+        return self.ble.send({
+            "event": "dinoGameOver",
             "state": self.state,
-            "score": self.score,
-        }
-        return self.ble.send(payload)
+            "score": self.last_round_score,
+            "bestScore": self.best_score,
+        })
+
+    def load_best_score(self):
+        try:
+            with open(SCORE_FILE, "r") as fp:
+                data = json.loads(fp.read() or "{}")
+            return max(0, int(data.get("bestScore", 0)))
+        except Exception:
+            return 0
+
+    def save_score_record(self, score, best_score):
+        try:
+            with open(SCORE_FILE, "w") as fp:
+                fp.write(json.dumps({
+                    "score": max(0, int(score)),
+                    "bestScore": max(0, int(best_score)),
+                }))
+            return True
+        except Exception as exc:
+            print("[DinoRunner] score save failed:", exc)
+            return False
 
 
 def appMain():
@@ -584,4 +622,6 @@ def appMain():
 
 if __name__ == "__main__":
     appMain()
+
+
 
