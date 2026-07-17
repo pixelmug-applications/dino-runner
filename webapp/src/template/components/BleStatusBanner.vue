@@ -5,7 +5,7 @@ import { hasJeeWebBridge } from '../bubbleClient';
 import { useBleSession } from '../bleSession';
 
 const READY_HIDE_MS = 2000;
-const CONNECT_COUNTDOWN_SECONDS = 15;
+const CONNECT_COUNTDOWN_SECONDS = 20;
 
 const ble = useBleSession();
 const showReady = ref(false);

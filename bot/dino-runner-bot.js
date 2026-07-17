@@ -12,20 +12,20 @@ const webAppHost = process.env.WEBAPP_HOST || localAddressHint();
 const generatedWebAppUrl = `http://${webAppHost}:${staticPort}/index.html`;
 const mpsLaunchConfig = {
   id: process.env.MPS_ID || "9898564609",
-  version: process.env.MPS_VERSION || "1.0.5",
+  version: process.env.MPS_VERSION || "1.0.1",
 };
 const webAppUrl = withMpsLaunchConfig(process.env.WEBAPP_URL || generatedWebAppUrl);
 const shouldServeStatic = !process.env.WEBAPP_URL;
 
 const messages = {
   "zh-CN": {
-    bindContent: "\u7ed1\u5b9a PixelMug \u540e\u5373\u53ef\u8fd0\u884c\u6050\u9f99\u66b4\u8d70\u3002",
-    bindButton: "\u7ed1\u5b9a PixelMug",
-    openButton: "\u6253\u5f00\u6050\u9f99\u66b4\u8d70",
-    intro: "**\u6050\u9f99\u66b4\u8d70**\n\n\u5728 PixelMug \u4e0a\u542f\u52a8\u50cf\u7d20\u5c0f\u6050\u9f99\uff0c\u7528\u624b\u673a\u6216\u676f\u8eab\u89e6\u6478\u952e\u8df3\u8dc3\uff0c\u8eb2\u5f00\u4e00\u8def\u51b2\u6765\u7684\u969c\u788d\u3002\n\n\u70b9\u51fb\u4e0b\u65b9\u6309\u94ae\u5f00\u59cb\u6e38\u620f\u3002",
-    commands: "\u547d\u4ee4\uff1a/bindDevice\uff0c/dinoRunner",
-    commandBind: "\u7ed1\u5b9a PixelMug",
-    commandDino: "\u6253\u5f00\u6050\u9f99\u66b4\u8d70",
+    bindContent: "绑定 PixelMug 后即可运行恐龙跑酷。",
+    bindButton: "绑定 PixelMug",
+    openButton: "打开恐龙跑酷",
+    intro: "**恐龙跑酷**\n\n在 PixelMug 上启动像素小恐龙，用手机或杯身触摸键跳跃，躲开一路冲来的障碍。\n\n点击下方按钮开始游戏。",
+    commands: "命令：/bindDevice，/dinoRunner",
+    commandBind: "绑定 PixelMug",
+    commandDino: "打开恐龙跑酷",
   },
   "en-US": {
     bindContent: "Bind a PixelMug before running Dino Runner.",
@@ -68,6 +68,7 @@ bot.on("web_app_data", async (ctx) => {
     bestScore,
     lastScore: Number(payload.lastScore || payload.score || 0),
     score: Number(payload.score || 0),
+    reason: payload.reason,
     reportedAt: payload.reportedAt,
   });
 });

@@ -48,7 +48,7 @@ Keep these two files in sync when changing game behavior.
 The app depends on:
 
 - `micropyxel`
-- `maopaoBle`
+- `maopaoBleApp`
 - `audio_service`
 - `mpy_button`
 

@@ -10,6 +10,7 @@ type DinoEventMessage = {
   event?: string;
   state?: DinoGameState;
   score?: number;
+  lastScore?: number;
   bestScore?: number;
 };
 
@@ -31,6 +32,8 @@ const state = reactive({
 
 let bleSession: ReturnType<typeof useBleSession> | null = null;
 let dataCleanup: (() => void) | null = null;
+let readyCleanup: (() => void) | null = null;
+let lastStateReportAt = 0;
 
 function getBle() {
   if (!bleSession) {
@@ -129,6 +132,7 @@ export function useDinoRunner() {
       state.bleState = ble.state.connection;
       state.status = 'connected';
       state.message = t('status.bleConnected');
+      await syncDeviceStateToBot('connected');
     } catch (error) {
       state.status = 'error';
       state.message = errorMessage(error);
@@ -157,13 +161,26 @@ export function useDinoRunner() {
 
   function bindBleState() {
     refreshDevice();
-    const cleanupState = getBle().bindState();
+    const ble = getBle();
+    const cleanupState = ble.bindState();
     dataCleanup?.();
-    dataCleanup = getBle().bindData(handleBleData);
+    dataCleanup = ble.bindData(handleBleData);
+    readyCleanup?.();
+    readyCleanup = watch(
+      () => ble.state.connection,
+      (connection, previous) => {
+        state.bleState = connection;
+        if (connection === 'ready' && previous && previous !== 'ready') {
+          void syncDeviceStateToBot(previous === 'idle' ? 'connected' : 'reconnected');
+        }
+      },
+    );
     return () => {
       cleanupState();
       dataCleanup?.();
       dataCleanup = null;
+      readyCleanup?.();
+      readyCleanup = null;
     };
   }
 
@@ -189,16 +206,13 @@ async function sendJumpCommand() {
 
   const ble = getBle();
   try {
-    await ble.send(
-      target,
+    await ble.sendRealtime(
+      'jump',
+      {},
       {
-        method: 'dinoJump',
-        id: `dino_${Date.now()}`,
-      },
-      {
-        expectResponse: false,
+        ttlMillis: 250,
         writeType: 'withoutResponse',
-        timeoutMillis: 1000,
+        timeoutMillis: 500,
       },
     );
     state.status = 'connected';
@@ -212,27 +226,78 @@ async function sendJumpCommand() {
 
 function handleBleData(event: { message?: unknown }) {
   const message = event.message as DinoEventMessage | undefined;
-  if (!message || message.event !== 'dinoGameOver') return;
+  if (!message) return;
+  if (message.event === 'dinoGameOver') {
+    applyDinoStatus(message, 'gameover');
+    reportScoreToBot('gameover');
+    return;
+  }
+  if (message.event === 'state' || message.event === 'stateChanged') {
+    applyDinoStatus(message);
+  }
+}
 
-  state.lastEvent = message.event;
-  state.gameState = 'gameover';
+async function syncDeviceStateToBot(reason: string) {
+  const now = Date.now();
+  if (now - lastStateReportAt < 1200) return;
+  lastStateReportAt = now;
+
+  const target = state.device;
+  if (!target) return;
+
+  try {
+    const response = await getBle().send(target, {
+      method: 'dinoGetState',
+      id: `dino_state_${now}`,
+    }, {
+      priority: 1,
+      timeoutMillis: 2500,
+    });
+    const payload = responsePayload(response) as DinoEventMessage | undefined;
+    if (payload) applyDinoStatus(payload);
+    reportScoreToBot(reason);
+  } catch (error) {
+    console.warn('[dino-runner] failed to sync device state', error);
+  }
+}
+
+function applyDinoStatus(message: DinoEventMessage, fallbackState?: DinoGameState) {
+  state.lastEvent = message.event || state.lastEvent;
+  if (message.state) {
+    state.gameState = message.state;
+  } else if (fallbackState) {
+    state.gameState = fallbackState;
+  }
   if (typeof message.score === 'number') {
     state.score = clampScore(message.score);
   }
-  state.lastScore = state.score;
+  if (typeof message.lastScore === 'number') {
+    state.lastScore = clampScore(message.lastScore);
+  } else if (fallbackState === 'gameover') {
+    state.lastScore = state.score;
+  }
   if (typeof message.bestScore === 'number') {
     state.bestScore = Math.max(state.bestScore, clampScore(message.bestScore));
   } else {
     state.bestScore = Math.max(state.bestScore, state.score);
   }
+}
 
+function reportScoreToBot(reason: string) {
   sendDinoBestScoreToBot({
     event: 'dinoGameOver',
     score: state.score,
     lastScore: state.lastScore,
     bestScore: state.bestScore,
     reportedAt: Date.now(),
+    reason,
   });
+}
+
+function responsePayload(response: unknown) {
+  const item = response as { result?: unknown; message?: unknown } | undefined;
+  const result = item?.result as { result?: unknown; message?: unknown } | undefined;
+  return result?.result || result?.message || item?.message || item?.result || response;
 }
 
 function mockRunning() {

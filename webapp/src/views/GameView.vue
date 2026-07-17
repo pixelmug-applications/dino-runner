@@ -8,11 +8,28 @@ const store = useDinoRunner();
 const showStartText = computed(() => store.state.gameState === 'gameover');
 const isPressed = ref(false);
 let pressTimer: number | undefined;
+let clickSuppressTimer: number | undefined;
+let pointerJumped = false;
 
 function clearPressTimer() {
   if (pressTimer === undefined) return;
   window.clearTimeout(pressTimer);
   pressTimer = undefined;
+}
+
+function clearClickSuppressTimer() {
+  if (clickSuppressTimer === undefined) return;
+  window.clearTimeout(clickSuppressTimer);
+  clickSuppressTimer = undefined;
+}
+
+function suppressNextClick() {
+  clearClickSuppressTimer();
+  pointerJumped = true;
+  clickSuppressTimer = window.setTimeout(() => {
+    pointerJumped = false;
+    clickSuppressTimer = undefined;
+  }, 600);
 }
 
 function setPressed(value: boolean) {
@@ -29,14 +46,33 @@ function releasePressed(delay = 120) {
   }, delay);
 }
 
-function handleJump() {
-  if (!store.canSend.value) return;
-  setPressed(true);
-  releasePressed(160);
-  store.jump();
+function sendJump() {
+  void store.jump();
 }
 
-onBeforeUnmount(clearPressTimer);
+function handlePointerDown() {
+  if (!store.canSend.value) return;
+  suppressNextClick();
+  setPressed(true);
+  sendJump();
+}
+
+function handleClick() {
+  if (!store.canSend.value) return;
+  if (pointerJumped) {
+    pointerJumped = false;
+    clearClickSuppressTimer();
+    return;
+  }
+  setPressed(true);
+  releasePressed(160);
+  sendJump();
+}
+
+onBeforeUnmount(() => {
+  clearPressTimer();
+  clearClickSuppressTimer();
+});
 </script>
 
 <template>
@@ -47,11 +83,11 @@ onBeforeUnmount(clearPressTimer);
         :class="{ 'is-text': showStartText, 'is-pressed': isPressed }"
         :disabled="!store.canSend.value"
         :aria-label="showStartText ? 'Press to Start' : t('game.jump')"
-        @pointerdown="setPressed(true)"
+        @pointerdown="handlePointerDown"
         @pointerup="releasePressed()"
         @pointercancel="releasePressed(0)"
         @pointerleave="releasePressed(0)"
-        @click="handleJump"
+        @click="handleClick"
       >
         <span v-if="showStartText" class="start-words">
           <span>Press</span>

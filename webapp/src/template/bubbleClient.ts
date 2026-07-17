@@ -1,17 +1,6 @@
 import type { DeviceInfo } from '../types';
 
 import { BubbleWebApp } from '../../../../jeejio-bubble/sdk/WebApp.js';
-import PixelMugModule from '../../../../jeejio-bubble/devices/PixelMug_1.1.js';
-
-type PixelMugInstance = {
-  rpc: {
-    call(method: string, params: Record<string, unknown>): { method: string; params: Record<string, unknown> };
-    talMpyExecOneScript(params: {
-      id: string;
-      version: string;
-    }): { method: string; params: Record<string, unknown> };
-  };
-};
 
 export type DeviceEventItem = {
   method?: string;
@@ -34,6 +23,14 @@ export type DinoBestScorePayload = {
   lastScore: number;
   bestScore: number;
   reportedAt: number;
+  reason?: string;
+};
+
+const TARGET_DEVICE_TAL_ID = 'PixelMug';
+const TARGET_DEVICE_NAME_PATTERN = /pixelmug/i;
+
+type DeviceLookupWebApp = BubbleWebApp & {
+  getDevice?: (options?: Record<string, unknown>) => Promise<unknown>;
 };
 
 type WebAppDataSender = BubbleWebApp & {
@@ -44,8 +41,6 @@ type WebAppDataSender = BubbleWebApp & {
   ): unknown;
 };
 
-const PixelMug = PixelMugModule as unknown as { new (): PixelMugInstance };
-const pixelMugSdk = new PixelMug();
 let webapp: BubbleWebApp | null = null;
 
 export function hasJeeWebBridge() {
@@ -63,24 +58,28 @@ export function getWebApp() {
   return webapp;
 }
 
-export function getPixelMugSdk() {
-  return pixelMugSdk;
-}
 
 export async function loadPixelMug() {
   if (!hasJeeWebBridge()) {
     return {
       name: 'PixelMug Mock',
-      talId: 'PixelMug',
+      talId: TARGET_DEVICE_TAL_ID,
+      compatible: ['PixelMugS1'],
       slotId: 'mock-slot',
       online: true,
     } satisfies DeviceInfo;
   }
 
+  const app = getWebApp() as DeviceLookupWebApp;
+  if (typeof app.getDevice === 'function') {
+    const device = normalizeDevice(await app.getDevice({ talId: TARGET_DEVICE_TAL_ID }));
+    if (device && matchesTargetDevice(device)) return device;
+  }
+
   const devices = (await getWebApp().getDevices()) as DeviceInfo[];
   return (
-    devices.find((device) => device.talId === 'PixelMug') ||
-    devices.find((device) => /pixelmug/i.test(device.name || '')) ||
+    devices.find(matchesTargetDevice) ||
+    devices.find((device) => TARGET_DEVICE_NAME_PATTERN.test(device.name || '')) ||
     null
   );
 }
@@ -111,4 +110,26 @@ export function onPixelMugEvent(handler: (event: DeviceEventPayload) => void) {
   if (!hasJeeWebBridge()) return () => undefined;
   getWebApp().onDeviceEvent((event: unknown) => handler(event as DeviceEventPayload));
   return () => undefined;
+}
+function normalizeDevice(value: unknown) {
+  if (!value || typeof value !== 'object') return null;
+  const payload = value as { result?: unknown; device?: unknown };
+  return (payload.result || payload.device || value) as DeviceInfo;
+}
+
+function matchesTargetDevice(device: DeviceInfo) {
+  const targetTalId = normalizeId(TARGET_DEVICE_TAL_ID);
+  const deviceTalIds = normalizeIds([device.talId, device.deviceTalId]);
+  const deviceCompatible = normalizeIds(device.compatible);
+
+  return deviceTalIds.includes(targetTalId) || deviceCompatible.includes(targetTalId);
+}
+
+function normalizeIds(values: unknown) {
+  const list = Array.isArray(values) ? values : values ? [values] : [];
+  return [...new Set(list.map(normalizeId).filter(Boolean))];
+}
+
+function normalizeId(value: unknown) {
+  return String(value || '').trim();
 }

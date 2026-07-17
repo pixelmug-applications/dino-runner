@@ -1,6 +1,8 @@
 export type DeviceInfo = {
   name?: string;
   talId?: string;
+  compatible?: string[];
+  deviceTalId?: string;
   slot?: string | number;
   slotId?: string;
   deviceId?: string;

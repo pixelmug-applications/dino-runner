@@ -8,7 +8,7 @@ except ImportError:
 
 import audio_service
 import micropyxel as pyxel
-from ble_webapp import WebAppBleManager
+from maopaoBleApp import BleAppService
 from pyxel_prompt_sound import PromptSoundPlayer
 import mpy_button as touch_events
 
@@ -122,7 +122,8 @@ def ticks_diff(a, b):
 
 class DinoRunnerApp:
     def __init__(self):
-        self.ble = WebAppBleManager("DinoRunner", self.handle_ble_message)
+        self.ble = BleAppService("DinoRunner", app_version="1.0.5", max_message=384)
+        self._register_ble_protocol()
         self.audio = audio_service.audio
         self.audio_initialized = False
         self.sound = PromptSoundPlayer(
@@ -187,17 +188,23 @@ class DinoRunnerApp:
         self.dead_x = 10
         self.dead_y = 7
 
-    def handle_ble_message(self, conn, message):
-        request_id = message.get("id")
-        method = message.get("method")
-        try:
-            if method not in ("jump", "dinoJump"):
-                self.ble.reply(request_id, False, error="unknown method", conn=conn)
-                return
-            self.jump()
-        except Exception as exc:
-            print("[DinoRunner] BLE command error:", exc)
-            self.ble.reply(request_id, False, error=str(exc), conn=conn)
+    def _register_ble_protocol(self):
+        self.ble.realtime("jump", self._handle_realtime_jump)
+        self.ble.command("dinoJump", self._cmd_jump, priority=0, mutates=False)
+        self.ble.command("jump", self._cmd_jump, priority=0, mutates=False)
+        self.ble.command("dinoGetState", self._cmd_get_state, priority=1, mutates=False)
+        self.ble.command("getState", self._cmd_get_state, priority=1, mutates=False)
+        self.ble.set_state_provider(self.state_payload)
+
+    def _handle_realtime_jump(self, data, message=None):
+        self.jump()
+
+    def _cmd_jump(self, params, message=None):
+        self.jump()
+        return self.state_payload()
+
+    def _cmd_get_state(self, params, message=None):
+        return self.state_payload()
 
     def restart(self):
         self.reset_world(STATE_RUNNING)
@@ -245,9 +252,10 @@ class DinoRunnerApp:
         return JUMP_Y_FRAMES_BY_RANK[target["rank"]]
 
     def update(self, rt):
+        self.ble.poll(budget_ms=1, max_messages=1)
         self.update_touch()
-        self.ble.poll()
         self.sound.update(budget_packets=SOUND_PACKETS_PER_UPDATE)
+        self.ble.poll(budget_ms=2, max_messages=1)
 
         if self.state == STATE_READY:
             self.update_ready_animation()
@@ -588,12 +596,15 @@ class DinoRunnerApp:
     def report_game_over(self):
         if not self.ble.connected:
             return False
-        return self.ble.send({
-            "event": "dinoGameOver",
+        return self.ble.send_event("dinoGameOver", self.state_payload(), priority=1)
+
+    def state_payload(self):
+        return {
             "state": self.state,
-            "score": self.last_round_score,
+            "score": self.score,
+            "lastScore": self.last_round_score,
             "bestScore": self.best_score,
-        })
+        }
 
     def load_best_score(self):
         try:

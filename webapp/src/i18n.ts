@@ -44,44 +44,44 @@ type MessageKey =
 
 const messages: Record<AppLocale, Record<MessageKey, string>> = {
   'zh-CN': {
-    'app.title': '\u6050\u9f99\u66b4\u8d70',
-    'landing.subtitle': '\u63a7\u5236\u4e00\u53ea\u5c0f\u6050\u9f99\u8df3\u8dc3\u969c\u788d\uff0c\u6a21\u62df chrome://dino \u6e38\u620f',
-    'landing.opening': '\u6b63\u5728\u6253\u5f00...',
-    'landing.enter': '\u8fdb\u5165\u6e38\u620f',
-    'landing.retry': '\u91cd\u8bd5',
-    'landing.install': '\u5728 PixelMug \u4e0a\u5b89\u88c5',
-    'status.browserMock': '\u6d4f\u89c8\u5668\u6a21\u62df\u6a21\u5f0f\u3002',
-    'status.findingDevice': '\u6b63\u5728\u67e5\u627e PixelMug...',
-    'status.deviceReady': 'PixelMug \u5df2\u5c31\u7eea\u3002',
-    'status.deviceMissing': '\u8fd8\u6ca1\u6709\u7ed1\u5b9a PixelMug\u3002',
-    'status.launching': '\u6b63\u5728\u542f\u52a8\u6050\u9f99\u66b4\u8d70...',
-    'status.preparing': '\u6b63\u5728\u51c6\u5907\u811a\u672c...',
-    'status.switching': '\u6b63\u5728\u5207\u6362\u5e94\u7528...',
-    'status.launchReady': '\u6050\u9f99\u5df2\u7ecf\u8dd1\u8d77\u6765\u4e86\u3002',
-    'status.connectingBle': '\u6b63\u5728\u8fde\u63a5 BLE...',
-    'status.bleConnected': 'BLE \u5df2\u8fde\u63a5\u3002',
-    'status.commandSent': '\u547d\u4ee4\u5df2\u53d1\u9001\u3002',
-    'status.unknownError': '\u672a\u77e5\u9519\u8bef',
-    'game.last': '\u4e0a\u6b21',
-    'game.best': '\u6700\u9ad8',
-    'game.status': '\u72b6\u6001',
-    'game.difficulty': '\u96be\u5ea6',
-    'game.easy': '\u8f7b\u677e',
-    'game.normal': '\u6807\u51c6',
-    'game.hard': '\u66b4\u8d70',
-    'game.jump': '\u8df3\u8dc3',
-    'game.restart': '\u91cd\u5f00',
-    'game.pause': '\u6682\u505c',
-    'game.resume': '\u7ee7\u7eed',
-    'game.state.running': '\u66b4\u8d70\u4e2d',
-    'game.state.paused': '\u5df2\u6682\u505c',
-    'game.state.gameover': '\u649e\u4e0a\u4e86',
-    'game.state.ready': '\u51c6\u5907\u597d\u4e86',
-    'game.state.unknown': '\u7b49\u5f85\u8fde\u63a5',
-    'ble.connected': 'BLE \u5df2\u8fde\u63a5',
-    'ble.connecting': '\u6b63\u5728\u8fde\u63a5 BLE ({seconds}s)',
-    'ble.disconnected': 'BLE \u672a\u8fde\u63a5',
-    'ble.retry': '\u91cd\u8bd5',
+    'app.title': '恐龙跑酷',
+    'landing.subtitle': '控制一只小恐龙跳跃障碍，模拟 chrome://dino 游戏',
+    'landing.opening': '正在打开...',
+    'landing.enter': '进入游戏',
+    'landing.retry': '重试',
+    'landing.install': '在 PixelMug 上安装',
+    'status.browserMock': '浏览器模拟模式。',
+    'status.findingDevice': '正在查找 PixelMug...',
+    'status.deviceReady': 'PixelMug 已就绪。',
+    'status.deviceMissing': '还没有绑定 PixelMug。',
+    'status.launching': '正在启动恐龙跑酷...',
+    'status.preparing': '正在准备应用...',
+    'status.switching': '正在切换应用...',
+    'status.launchReady': '恐龙已经跑起来了。',
+    'status.connectingBle': '正在连接 BLE...',
+    'status.bleConnected': 'BLE 已连接。',
+    'status.commandSent': '命令已发送。',
+    'status.unknownError': '未知错误',
+    'game.last': '上次',
+    'game.best': '最高',
+    'game.status': '状态',
+    'game.difficulty': '难度',
+    'game.easy': '轻松',
+    'game.normal': '标准',
+    'game.hard': '暴走',
+    'game.jump': '跳跃',
+    'game.restart': '重开',
+    'game.pause': '暂停',
+    'game.resume': '继续',
+    'game.state.running': '暴走中',
+    'game.state.paused': '已暂停',
+    'game.state.gameover': '撞上了',
+    'game.state.ready': '准备好了',
+    'game.state.unknown': '等待连接',
+    'ble.connected': 'BLE 已连接',
+    'ble.connecting': '正在连接 BLE ({seconds}s)',
+    'ble.disconnected': 'BLE 未连接',
+    'ble.retry': '重试',
   },
   'en-US': {
     'app.title': 'Dino Runner',
@@ -95,7 +95,7 @@ const messages: Record<AppLocale, Record<MessageKey, string>> = {
     'status.deviceReady': 'PixelMug is ready.',
     'status.deviceMissing': 'No PixelMug is bound yet.',
     'status.launching': 'Launching Dino Runner...',
-    'status.preparing': 'Preparing script...',
+    'status.preparing': 'Preparing app...',
     'status.switching': 'Switching app...',
     'status.launchReady': 'The dino is running.',
     'status.connectingBle': 'Connecting BLE...',
@@ -144,17 +144,11 @@ export function t(key: MessageKey, params: Record<string, string | number> = {})
 }
 
 function detectLocale(): AppLocale {
-  const query = new URLSearchParams(globalThis.location?.search || '');
-  return normalizeLocale(
-    query.get('lang') ||
-      query.get('language') ||
-      query.get('locale') ||
-      globalThis.navigator?.language,
-  );
+  return (globalThis as { JeeWeb?: { Language?: string } }).JeeWeb?.Language === 'zh-CN'
+    ? 'zh-CN'
+    : 'en-US';
 }
 
 function normalizeLocale(value: string | null | undefined): AppLocale {
-  const text = String(value || '').toLowerCase();
-  if (text.startsWith('zh')) return 'zh-CN';
-  return 'en-US';
+  return value === 'zh-CN' ? 'zh-CN' : 'en-US';
 }

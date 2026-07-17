@@ -1,6 +1,5 @@
 import type { DeviceInfo } from '../types';
 import {
-  getPixelMugSdk,
   getWebApp,
   hasJeeWebBridge,
   onPixelMugEvent,
@@ -42,10 +41,13 @@ export function getMpsLaunchConfig(): MpsLaunchConfig {
 }
 
 export async function installMpsApp(device: DeviceInfo, config = getMpsLaunchConfig()) {
-  const rpc = getPixelMugSdk().rpc.talMpyExecOneScript({
-    id: config.id,
-    version: config.version,
-  });
+  const rpc = {
+    method: 'talMpyExecOneScript',
+    params: {
+      id: config.id,
+      version: config.version,
+    },
+  };
 
   if (!hasJeeWebBridge()) {
     return { code: 200, result: { value: 264 }, mock: true, config };
