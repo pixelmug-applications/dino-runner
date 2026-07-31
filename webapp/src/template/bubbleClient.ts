@@ -26,8 +26,7 @@ export type DinoBestScorePayload = {
   reason?: string;
 };
 
-const TARGET_DEVICE_TAL_ID = 'PixelMug';
-const TARGET_DEVICE_NAME_PATTERN = /pixelmug/i;
+const TARGET_DEVICE_TAL_ID = 'PixelMugS1';
 
 type DeviceLookupWebApp = BubbleWebApp & {
   getDevice?: (options?: Record<string, unknown>) => Promise<unknown>;
@@ -62,9 +61,8 @@ export function getWebApp() {
 export async function loadPixelMug() {
   if (!hasJeeWebBridge()) {
     return {
-      name: 'PixelMug Mock',
+      name: 'PixelMugS1 Mock',
       talId: TARGET_DEVICE_TAL_ID,
-      compatible: ['PixelMugS1'],
       slotId: 'mock-slot',
       online: true,
     } satisfies DeviceInfo;
@@ -77,11 +75,8 @@ export async function loadPixelMug() {
   }
 
   const devices = (await getWebApp().getDevices()) as DeviceInfo[];
-  return (
-    devices.find(matchesTargetDevice) ||
-    devices.find((device) => TARGET_DEVICE_NAME_PATTERN.test(device.name || '')) ||
-    null
-  );
+  const device = devices[0] || null;
+  return device && matchesTargetDevice(device) ? device : null;
 }
 
 export async function subscribePixelMugEvents(device: DeviceInfo) {
@@ -118,17 +113,9 @@ function normalizeDevice(value: unknown) {
 }
 
 function matchesTargetDevice(device: DeviceInfo) {
-  const targetTalId = normalizeId(TARGET_DEVICE_TAL_ID);
-  const deviceTalIds = normalizeIds([device.talId, device.deviceTalId]);
-  const deviceCompatible = normalizeIds(device.compatible);
-
-  return deviceTalIds.includes(targetTalId) || deviceCompatible.includes(targetTalId);
+  return normalizeId(device.talId || device.deviceTalId) === TARGET_DEVICE_TAL_ID;
 }
 
-function normalizeIds(values: unknown) {
-  const list = Array.isArray(values) ? values : values ? [values] : [];
-  return [...new Set(list.map(normalizeId).filter(Boolean))];
-}
 
 function normalizeId(value: unknown) {
   return String(value || '').trim();
