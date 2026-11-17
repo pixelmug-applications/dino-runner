@@ -38,7 +38,7 @@ function setPressed(value: boolean) {
   isPressed.value = value;
 }
 
-function releasePressed(delay = 120) {
+function releasePressed(delay = 0) {
   clearPressTimer();
   pressTimer = window.setTimeout(() => {
     isPressed.value = false;
@@ -65,8 +65,12 @@ function handleClick() {
     return;
   }
   setPressed(true);
-  releasePressed(160);
+  releasePressed(40);
   sendJump();
+}
+
+function onVolumeInput(event: Event) {
+  store.setSoundVolume(Number((event.target as HTMLInputElement).value));
 }
 
 onBeforeUnmount(() => {
@@ -106,6 +110,14 @@ onBeforeUnmount(() => {
       <div>
         <span>{{ t('game.best') }}</span>
         <strong class="best-score-value">{{ store.state.bestScore }}</strong>
+      </div>
+    </section>
+
+    <section class="sound-settings" :aria-label="t('game.soundVolume')">
+      <div class="sound-volume">
+        <label for="dino-sound-volume">{{ t('game.soundVolume') }}</label>
+        <input id="dino-sound-volume" type="range" min="0" max="100" step="1" :value="store.state.soundVolume" :disabled="!store.canSend.value" @input="onVolumeInput" />
+        <output for="dino-sound-volume">{{ store.state.soundVolume }}%</output>
       </div>
     </section>
   </main>

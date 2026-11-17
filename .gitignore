@@ -1,6 +1,6 @@
-bot/config.dev.js
-bot/config.pub.js
 prompt.txt
+/tests
+/debug/
 
 # Dependencies
 node_modules/
@@ -29,8 +29,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-bot/config.dev.js
-bot/config.pub.js
 
 # OS/editor noise
 .DS_Store

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { LOADING_IMAGE } from '../assets';
 import { t } from '../i18n';
@@ -14,6 +14,7 @@ const step = ref<LandingStep>('open');
 async function handleOpen() {
   const ok = await store.openOnDevice();
   step.value = ok ? 'enter' : 'open';
+  if (ok) void store.connectDevice();
 }
 
 async function handleEnter() {
@@ -22,8 +23,11 @@ async function handleEnter() {
     return;
   }
   router.push('/game');
-  await store.connectDevice();
 }
+
+onMounted(() => {
+  void handleOpen();
+});
 </script>
 
 <template>
@@ -40,14 +44,14 @@ async function handleEnter() {
     </div>
 
     <div class="landing-actions">
-      <button class="landing-primary" :disabled="store.busy.value" @click="step === 'enter' ? handleEnter() : handleOpen()">
-        {{ store.openButtonLabel.value }}
+      <button class="landing-primary" :disabled="step === 'open' && store.busy.value" @click="step === 'enter' ? handleEnter() : handleOpen()">
+        {{ step === 'enter' ? t('landing.enter') : store.openButtonLabel.value }}
       </button>
       <p
-        v-if="store.statusText.value"
-        :class="store.state.status === 'error' ? 'landing-error' : 'landing-status'"
+        v-if="step === 'enter' || store.statusText.value"
+        :class="step === 'open' && store.state.status === 'error' ? 'landing-error' : 'landing-status'"
       >
-        {{ store.statusText.value }}
+        {{ step === 'enter' ? t('status.launchReady') : store.statusText.value }}
       </p>
     </div>
   </main>

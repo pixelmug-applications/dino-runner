@@ -14,8 +14,6 @@ export type MpsLaunchConfig = {
 
 export type MpsLaunchPhase = 'requesting' | 'preparing' | 'switching' | 'ready' | 'failed';
 
-const DEV_MPS_ID = import.meta.env.VITE_MPS_ID || '7048139265';
-const DEV_MPS_VERSION = import.meta.env.VITE_MPS_VERSION || '0.0.1';
 const MPS_OPEN_TIMEOUT_MS = 45000;
 const READY_EVENTS = new Set(['MPS_IS_RUNNING']);
 const FAILED_EVENTS = new Set(['INSTALL_FAIL', 'RUNNING_FAIL']);
@@ -42,9 +40,14 @@ type MpsInstallError = {
 
 export function getMpsLaunchConfig(): MpsLaunchConfig {
   const params = new URLSearchParams(globalThis.location?.search || '');
+  const id = params.get('mps_id')?.trim();
+  const version = params.get('mps_version')?.trim();
+  if (!id || !version || ['null', 'undefined'].includes(id) || ['null', 'undefined'].includes(version)) {
+    throw new Error('MPS ID and version are missing from the Studio launch URL.');
+  }
   return {
-    id: cleanLaunchParam(params.get('mps_id'), DEV_MPS_ID),
-    version: cleanLaunchParam(params.get('mps_version'), DEV_MPS_VERSION),
+    id,
+    version,
   };
 }
 
@@ -87,7 +90,14 @@ export async function openMpsApp(
     timeoutMs: options.timeoutMs,
     onPhase: options.onPhase,
   });
-  const result = await installMpsApp(device, config);
+  let result;
+  try {
+    result = await installMpsApp(device, config);
+  } catch (error) {
+    clearPendingLaunch();
+    options.onPhase?.('failed');
+    throw error;
+  }
   const code = mpyExecReturnCode(result);
 
   if (code === 264) {
@@ -114,12 +124,6 @@ export async function openMpsApp(
     options.onPhase?.('failed');
     throw error;
   }
-}
-
-function cleanLaunchParam(value: string | null, fallback: string) {
-  const trimmed = String(value || '').trim();
-  if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return fallback;
-  return trimmed;
 }
 
 async function bindMpsEvents() {

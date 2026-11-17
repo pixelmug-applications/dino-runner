@@ -1,162 +1,36 @@
 # Dino Runner
 
-Dino Runner is a PixelMug MPS mini game. A tiny dinosaur runs on the 32x16 display, jumps over obstacles, plays short prompt sounds, and reports the final score back to the WebApp when the round ends.
+Dino Runner is a single-player PixelMug game. A dinosaur runs across the 32 × 16 display while the player jumps over obstacles using the mug's touch key or the WebApp button. The game includes sound effects, increasing difficulty, and a bonus for clearing the hardest obstacle.
 
-## Features
+## Open in PixelMug Studio
 
-- 32x16 MicroPython game powered by `micropyxel`.
-- Jump control from either the PixelMug touch key or the WebApp BLE button.
-- Ready, intro, running, and game-over states on device.
-- Four-digit score display, capped at `9999`.
-- Persistent best score stored on device in `dino_score.json`.
-- Obstacle difficulty ramps up as score increases by reducing spawn gaps.
-- The hardest obstacle grants a `+100` bonus after it is cleared.
-- Prompt sounds for jump, hit, score milestones, and the hardest-obstacle bonus.
+1. Open this project directory in PixelMug Studio and configure a Bot token.
+2. Bind a PixelMug S1 to your account, then start the project in Studio.
+3. Send `/dinoRunner` to the Bot and open its WebApp link. The loading page installs and starts the MPY app automatically; use **Retry** if it fails.
+4. Enter the game. The WebApp connects over BLE, and either the phone button or the mug touch key starts, jumps, and restarts the game.
 
-## Structure
+The Bot and WebApp use the Studio-provided `STUDIO_WEBAPP_URL`, `STUDIO_MPS_ID`, and `STUDIO_MPS_VERSION`. Studio hosts the built WebApp, so no separate static server or application-specific environment file is needed.
 
-```text
-dino-runner/
-  bot/      Bubble bot entrypoint and static WebApp server
-  webapp/   Vue 3 + Vite mobile WebApp
-  mpy/      MicroPython device-side game and MPS manifest
-```
+## Scores and controls
 
-Important device assets live under `mpy/assets/`:
+The device is the only score authority. Its MPY app saves the last and best scores in `dino_score.json` when a round ends. The WebApp reads scores from the device through the existing BLE `dinoGetState` response and `dinoGameOver` event. It does not save scores or send them to the Bot. The Bot only provides binding help and the game link.
 
-```text
-assets/dino_assets.png  Sprite sheet and background
-assets/jump.ogg         Jump prompt sound, preloaded
-assets/hit.ogg          Collision prompt sound, preloaded
-assets/score.ogg        Score milestone prompt sound, preloaded
-assets/plus.ogg         Bonus prompt sound, played on demand
-```
+The phone's Jump button sends one byte, `0x4A` (`J`), on the simple BLE RAW channel. On the mug, the rising edge of `mpy_button.is_pressed()` starts, jumps, or restarts according to the game state; release the key before pressing again. The WebApp and MPY code both use the BLE app ID `DinoRunner`.
 
-`plus.ogg` is intentionally not preloaded because it is larger than the other short prompts.
+Below the Last and Best scores, the WebApp offers a 0–100 Sound effects volume slider. Zero mutes and stops the current sound effect. Changes are sent through the `dinoSetSoundVolume` BLE command and applied immediately by the device's Audio Service. The current volume is returned by `dinoGetState` when the WebApp connects; it resets to 100 when the device app restarts.
 
-## Device App
+Device assets are in `mpy/assets/` and use device-relative paths. `mpy/mps.json` declares the required MicroPython modules and version `1.0.0`.
 
-The MicroPython app has two identical entry files:
+## Project layout
 
 ```text
-mpy/__main__.py
-mpy/dino.py
+bot/index.js       Bot commands and bilingual messages
+webapp/            Vue controller and MPY launch page
+mpy/__main__.py    Device game and score storage
+mpy/mps.json       MPS manifest
+mpy/assets/        Sprite sheet and sounds
 ```
 
-Keep these two files in sync when changing game behavior.
+## Local checks
 
-The app depends on:
-
-- `micropyxel`
-- `maopaoBleApp`
-- `audio_service`
-- `mpy_button`
-
-The MPS manifest is `mpy/mps.json`; the current app version is `1.0.5`.
-
-## Controls
-
-- Touch the PixelMug button to start, jump, or restart after game over.
-- Press the WebApp jump button to send a BLE jump command.
-- While the game is ready, the first jump starts the intro animation.
-- While the game is over, the next jump restarts the game.
-
-## BLE Protocol
-
-The WebApp sends jump commands to the MicroPython app:
-
-```json
-{ "method": "dinoJump", "id": "dino_..." }
-```
-
-The device also accepts this alias:
-
-```json
-{ "method": "jump", "id": "dino_..." }
-```
-
-The current device app does not implement pause, resume, restart, or difficulty configuration BLE methods. Restart is handled by sending another jump command while the device is in `gameover` state.
-
-When a round ends, the MicroPython app sends:
-
-```json
-{
-  "event": "dinoGameOver",
-  "state": "gameover",
-  "score": 123,
-  "bestScore": 456
-}
-```
-
-The WebApp stores the best score locally and forwards the game-over score summary to the Bubble bot as `app.dinoBestScore` WebApp data.
-
-## Build WebApp
-
-Install dependencies once:
-
-```sh
-npm --prefix webapp install
-```
-
-Build the WebApp:
-
-```sh
-npm run build
-```
-
-Run the local Vite dev server:
-
-```sh
-npm run dev
-```
-
-Preview the production build:
-
-```sh
-npm run preview
-```
-
-## Run Bot
-
-Required:
-
-```sh
-set BUBBLE_BOT_TOKEN=your-bot-token
-```
-
-Optional:
-
-```sh
-set BUBBLE_API_BASE_URL=https://api.devjeejio.com:5443/im/
-set WEBAPP_HOST=your-lan-ip
-set WEBAPP_PORT=8799
-set WEBAPP_URL=https://your-public-webapp-url/index.html
-set MPS_ID=9898564609
-set MPS_VERSION=1.0.5
-set APP_LOCALE=zh-CN
-set DEBUG=false
-```
-
-Start:
-
-```sh
-npm run bot
-```
-
-If `WEBAPP_URL` is not set, the bot serves `webapp/dist` on `WEBAPP_PORT` and uses `WEBAPP_HOST` to generate the WebApp URL. The bot appends `mps_id`, `mps_version`, and `lang` query parameters when opening the WebApp.
-
-## Bot Commands
-
-- `/bindDevice`: sends the PixelMug binding card.
-- `/dinoRunner`: opens the Dino Runner WebApp.
-- `/webapp` and `/start`: also open the Dino Runner WebApp.
-
-## Notes
-
-- `dino_assets.png` is loaded with `include_colors=True` and drawn with color key `0`; pure black pixels map to color index `0`, so they are treated as transparent by `blt`.
-- Scores are saved on the device after game over, not continuously during play.
-
-## MPS ID
-
-- qa: 6670033921
-- release: 9898564609
+Run `npm install` in the project root and `npm --prefix webapp install` for the WebApp. Then run `npm run build` and the PixelMug Skill project validator. Studio supplies the runtime configuration when the project is opened there.

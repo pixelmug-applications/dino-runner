@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue';
 import type { DeviceInfo } from '../types';
 import { getWebApp, hasJeeWebBridge } from './bubbleClient';
-import { BleAppClient, isBleAppDisconnectError } from '../../../../jeejio-bubble/sdk/BleAppClient.js';
+import { BleAppClient, isBleAppDisconnectError } from '@jeejio-bubble/bot/sdk/BleAppClient.js';
 
 type BlePayload = Record<string, unknown>;
 
@@ -16,7 +16,6 @@ const UNAVAILABLE_STATES = new Set(['disconnected', 'failed']);
 const ACK_READY_GRACE_MS = 8000;
 const BLE_CONNECT_TIMEOUT_MS = 20000;
 const BLE_SEND_TIMEOUT_MS = 9000;
-const BLE_REALTIME_TIMEOUT_MS = 500;
 const TRANSIENT_UNAVAILABLE_GRACE_MS = 1800;
 const BLE_CONNECT_TIMEOUT_MESSAGE = 'connecting ble time out.';
 const BLE_CONNECTING_MESSAGE = 'Connecting BLE...';
@@ -82,21 +81,17 @@ export function useBleSession() {
     }
   }
 
-  async function sendRealtime(channel: string, data: unknown, options: Record<string, unknown> = {}) {
+  async function sendSimpleRaw(data: Uint8Array) {
     if (!currentDevice) throw new Error('BLE device is not selected.');
 
     if (!hasJeeWebBridge()) {
-      return { ok: true, mock: true };
+      return { code: 200, accepted: true, bytes: data.byteLength, mock: true };
     }
 
     try {
-      return await getProtocolClient().sendRealtime(channel, data, {
+      return await getProtocolClient().sendSimpleRaw(data, {
         device: currentDevice,
-        ttlMillis: 250,
-        writeType: 'withoutResponse',
-        timeoutMillis: BLE_REALTIME_TIMEOUT_MS,
         ...connectOptions(),
-        ...options,
       });
     } catch (error) {
       applyError(error);
@@ -133,7 +128,7 @@ export function useBleSession() {
     ensureConnected,
     reconnect,
     send,
-    sendRealtime,
+    sendSimpleRaw,
   };
 }
 
@@ -141,7 +136,7 @@ function getProtocolClient() {
   if (!protocolClient) {
     protocolClient = new BleAppClient(getWebApp().ble!, {
       appId: 'DinoRunner',
-      appVersion: '1.0.5',
+      appVersion: '1.0.0',
       timeoutMillis: BLE_SEND_TIMEOUT_MS,
       sendTimeoutMillis: BLE_SEND_TIMEOUT_MS,
       connectTimeoutMillis: BLE_CONNECT_TIMEOUT_MS,

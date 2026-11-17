@@ -8,7 +8,7 @@ except ImportError:
 
 import audio_service
 import micropyxel as pyxel
-from maopaoBleApp import BleAppService
+from maopaoBleApp import BleAppService, DATA_TYPE_RAW
 from pyxel_prompt_sound import PromptSoundPlayer
 import mpy_button as touch_events
 
@@ -16,6 +16,8 @@ import mpy_button as touch_events
 SCR_W = 32
 SCR_H = 16
 FPS = 30
+SIMPLE_JUMP = 0x4A  # 'J': start, jump or restart, according to game state.
+SIMPLE_JUMP_TTL_MS = 250
 BANK = 0
 ASSET_PATH = "assets/dino_assets.png"
 INC_COLORS = True
@@ -85,9 +87,6 @@ SCORE_SOUND = "score.ogg"
 PLUS_SOUND = "plus.ogg"
 SCORE_FILE = "dino_score.json"
 
-TOUCH_EVENTS_PER_UPDATE = 8
-TOUCH_CLICK_EVENTS = ("click", "single", "single_click", "tap", "hit")
-
 COL_BLACK = 0
 COL_WHITE = 7
 COL_RED = 8
@@ -122,10 +121,11 @@ def ticks_diff(a, b):
 
 class DinoRunnerApp:
     def __init__(self):
-        self.ble = BleAppService("DinoRunner", app_version="1.0.5", max_message=384)
+        self.ble = BleAppService("DinoRunner", app_version="1.0.0", max_message=384)
         self._register_ble_protocol()
         self.audio = audio_service.audio
         self.audio_initialized = False
+        self.sound_volume = SOUND_VOLUME
         self.sound = PromptSoundPlayer(
             audio=self.audio,
             asset_root="assets",
@@ -134,11 +134,10 @@ class DinoRunnerApp:
             packets_per_update=SOUND_PACKETS_PER_UPDATE,
             stop_handler=self.stop_sound,
         )
-        self.last_round_score = 0
-        self.best_score = self.load_best_score()
+        self.last_round_score, self.best_score = self.load_score_record()
 
         pyxel.init(start_audio=False)
-        self.clear_touch_events()
+        self.last_pressed = self.button_is_pressed()
         pyxel.images(BANK).load_from_png(0, 0, ASSET_PATH, INC_COLORS)
         self.prepare_sound()
         self.reset_world(STATE_READY)
@@ -177,8 +176,6 @@ class DinoRunnerApp:
         self.jump_y_frames = JUMP_Y_FRAMES_EMPTY
         self.obstacles = []
         self.next_spawn_px = SPAWN_GAP_BASE_MIN
-        self.last_pressed = False
-        self.suppress_next_click = False
         self.score = 0
         self.last_score_ms = now
         self.last_score_sound = 0
@@ -189,21 +186,37 @@ class DinoRunnerApp:
         self.dead_y = 7
 
     def _register_ble_protocol(self):
-        self.ble.realtime("jump", self._handle_realtime_jump)
-        self.ble.command("dinoJump", self._cmd_jump, priority=0, mutates=False)
-        self.ble.command("jump", self._cmd_jump, priority=0, mutates=False)
+        self.ble.on_simple(self._handle_simple_jump)
         self.ble.command("dinoGetState", self._cmd_get_state, priority=1, mutates=False)
         self.ble.command("getState", self._cmd_get_state, priority=1, mutates=False)
+        self.ble.command("dinoSetSoundVolume", self._cmd_set_sound_volume, priority=0)
         self.ble.set_state_provider(self.state_payload)
 
-    def _handle_realtime_jump(self, data, message=None):
+    def _handle_simple_jump(self, data_type, payload, context):
+        if data_type != DATA_TYPE_RAW or len(payload) != 1 or payload[0] != SIMPLE_JUMP:
+            return
+        received_ms = context.get("received_ms")
+        if received_ms is not None and ticks_diff(ticks_ms(), received_ms) >= SIMPLE_JUMP_TTL_MS:
+            return
         self.jump()
-
-    def _cmd_jump(self, params, message=None):
-        self.jump()
-        return self.state_payload()
 
     def _cmd_get_state(self, params, message=None):
+        return self.state_payload()
+
+    def _cmd_set_sound_volume(self, params, message=None):
+        if not isinstance(params, dict):
+            raise ValueError("sound volume must be an object")
+        volume = params.get("volume")
+        if type(volume) is not int or not 0 <= volume <= 100:
+            raise ValueError("volume must be 0..100")
+        if volume == self.sound_volume:
+            return self.state_payload()
+        if not self.ensure_audio():
+            raise RuntimeError("audio service is unavailable")
+        self.audio.configure(output_volume=volume)
+        if volume == 0:
+            self.stop_sound()
+        self.sound_volume = volume
         return self.state_payload()
 
     def restart(self):
@@ -252,10 +265,10 @@ class DinoRunnerApp:
         return JUMP_Y_FRAMES_BY_RANK[target["rank"]]
 
     def update(self, rt):
-        self.ble.poll(budget_ms=1, max_messages=1)
+        self.ble.poll(budget_ms=1, max_messages=1, max_simple_messages=2)
         self.update_touch()
         self.sound.update(budget_packets=SOUND_PACKETS_PER_UPDATE)
-        self.ble.poll(budget_ms=2, max_messages=1)
+        self.ble.poll(budget_ms=2, max_messages=1, max_simple_messages=2)
 
         if self.state == STATE_READY:
             self.update_ready_animation()
@@ -269,33 +282,13 @@ class DinoRunnerApp:
         pressed = self.button_is_pressed()
         if pressed and not self.last_pressed:
             self.jump()
-            self.suppress_next_click = True
         self.last_pressed = pressed
-
-        for _ in range(TOUCH_EVENTS_PER_UPDATE):
-            event = touch_events.get()
-            if event is None:
-                break
-            if self.normalize_touch_event(event) == "click":
-                if self.suppress_next_click:
-                    self.suppress_next_click = False
-                    continue
-                self.jump()
 
     def button_is_pressed(self):
         try:
             return bool(touch_events.is_pressed())
         except Exception:
             return False
-
-    def normalize_touch_event(self, event):
-        try:
-            name = str(event).strip().lower()
-        except Exception:
-            return None
-        if name in TOUCH_CLICK_EVENTS:
-            return "click"
-        return None
 
     def update_ready_animation(self):
         now = ticks_ms()
@@ -551,6 +544,8 @@ class DinoRunnerApp:
         return ok
 
     def play_sound(self, path, interrupt=True):
+        if self.sound_volume == 0:
+            return False
         if not self.ensure_audio():
             return False
         ok = self.sound.play(path, interrupt=interrupt)
@@ -573,18 +568,12 @@ class DinoRunnerApp:
                 with_opus_encoder=False,
                 with_opus_decoder=True,
             )
-            self.audio.configure(output_volume=SOUND_VOLUME, input_gain=1.0)
+            self.audio.configure(output_volume=self.sound_volume, input_gain=1.0)
             self.audio_initialized = True
             return True
         except Exception as exc:
             print("[DinoRunner] audio init failed:", exc)
             return False
-
-    def clear_touch_events(self):
-        try:
-            touch_events.clear()
-        except Exception as exc:
-            print("[DinoRunner] touch clear failed:", exc)
 
     def finish_round(self):
         self.last_round_score = self.score
@@ -604,15 +593,18 @@ class DinoRunnerApp:
             "score": self.score,
             "lastScore": self.last_round_score,
             "bestScore": self.best_score,
+            "soundVolume": self.sound_volume,
         }
 
-    def load_best_score(self):
+    def load_score_record(self):
         try:
             with open(SCORE_FILE, "r") as fp:
                 data = json.loads(fp.read() or "{}")
-            return max(0, int(data.get("bestScore", 0)))
+            last_score = max(0, int(data.get("score", 0)))
+            best_score = max(0, int(data.get("bestScore", 0)))
+            return last_score, max(last_score, best_score)
         except Exception:
-            return 0
+            return 0, 0
 
     def save_score_record(self, score, best_score):
         try:
@@ -633,6 +625,5 @@ def appMain():
 
 if __name__ == "__main__":
     appMain()
-
 
 

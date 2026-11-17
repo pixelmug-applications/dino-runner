@@ -1,7 +1,8 @@
 import { computed, reactive, watch } from 'vue';
-import { hasJeeWebBridge, loadPixelMug, sendDinoBestScoreToBot } from '../template/bubbleClient';
+import { hasJeeWebBridge, loadPixelMug } from '../template/bubbleClient';
 import { openMpsApp } from '../template/mpsLaunch';
 import { useBleSession } from '../template/bleSession';
+import { SimpleJumpSender } from './simpleJumpSender';
 import { t } from '../i18n';
 import type { AppStatus, DeviceInfo, DinoGameState } from '../types';
 
@@ -12,10 +13,11 @@ type DinoEventMessage = {
   score?: number;
   lastScore?: number;
   bestScore?: number;
+  soundVolume?: number;
 };
 
-const BEST_SCORE_KEY = 'mps-dino-runner-best-score';
 const MAX_SCORE = 9999;
+const SIMPLE_JUMP = 0x4A;
 
 const state = reactive({
   status: 'idle' as AppStatus,
@@ -26,14 +28,20 @@ const state = reactive({
   gameState: 'unknown' as DinoGameState,
   score: 0,
   lastScore: 0,
-  bestScore: loadBestScore(),
+  bestScore: 0,
+  soundVolume: 100,
   lastEvent: '',
 });
 
 let bleSession: ReturnType<typeof useBleSession> | null = null;
 let dataCleanup: (() => void) | null = null;
 let readyCleanup: (() => void) | null = null;
-let lastStateReportAt = 0;
+let lastStateSyncAt = 0;
+let soundSendTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingSound: number | null = null;
+let soundSending = false;
+let soundSendingDevice: DeviceInfo | null = null;
+let confirmedSoundVolume = 100;
 
 function getBle() {
   if (!bleSession) {
@@ -44,6 +52,21 @@ function getBle() {
 
 const busy = computed(() => ['loading', 'installing', 'connecting', 'syncing'].includes(state.status));
 const canSend = computed(() => Boolean(state.device) && getBle().isReady.value);
+const jumpSender = new SimpleJumpSender({
+  canSend: () => canSend.value,
+  send: async () => {
+    const result = await getBle().sendSimpleRaw(new Uint8Array([SIMPLE_JUMP]));
+    if (result?.accepted === false) throw new Error('Simple BLE jump was not accepted.');
+  },
+  onError: error => {
+    state.status = 'error';
+    state.message = errorMessage(error);
+  },
+});
+watch(() => state.device, () => {
+  jumpSender.clear();
+  clearPendingSound();
+}, { flush: 'sync' });
 const canEnter = computed(() => state.launchPhase === 'ready');
 const statusText = computed(() => {
   if (!state.message) return '';
@@ -62,13 +85,6 @@ const stateLabel = computed(() => {
   if (state.gameState === 'ready') return t('game.state.ready');
   return t('game.state.unknown');
 });
-
-watch(
-  () => state.bestScore,
-  (score) => {
-    localStorage.setItem(BEST_SCORE_KEY, String(clampScore(score)));
-  },
-);
 
 export function useDinoRunner() {
   async function refreshDevice() {
@@ -132,7 +148,7 @@ export function useDinoRunner() {
       state.bleState = ble.state.connection;
       state.status = 'connected';
       state.message = t('status.bleConnected');
-      await syncDeviceStateToBot('connected');
+      await syncDeviceState();
     } catch (error) {
       state.status = 'error';
       state.message = errorMessage(error);
@@ -140,23 +156,22 @@ export function useDinoRunner() {
   }
 
   async function jump() {
-    const previousScore = state.score;
     const restarting = state.gameState === 'gameover';
-    if (restarting) {
-      state.score = 0;
+    const sent = await jumpSender.submit();
+    if (!sent) return;
+    state.status = 'connected';
+    if (restarting && state.gameState === 'gameover') {
       state.gameState = 'running';
-    }
-
-    const sent = await sendJumpCommand();
-    if (!sent && restarting) {
-      state.score = previousScore;
-      state.gameState = 'gameover';
-      return;
     }
 
     if (!hasJeeWebBridge()) {
       mockRunning();
     }
+  }
+
+  function setSoundVolume(volume: number) {
+    state.soundVolume = clampVolume(volume);
+    queueSoundSettings();
   }
 
   function bindBleState() {
@@ -170,12 +185,18 @@ export function useDinoRunner() {
       () => ble.state.connection,
       (connection, previous) => {
         state.bleState = connection;
+        if (connection !== 'ready') {
+          jumpSender.clear();
+          clearPendingSound();
+        }
         if (connection === 'ready' && previous && previous !== 'ready') {
-          void syncDeviceStateToBot(previous === 'idle' ? 'connected' : 'reconnected');
+          void syncDeviceState();
         }
       },
+      { flush: 'sync' },
     );
     return () => {
+      jumpSender.clear();
       cleanupState();
       dataCleanup?.();
       dataCleanup = null;
@@ -197,30 +218,55 @@ export function useDinoRunner() {
     jump,
     openOnDevice,
     refreshDevice,
+    setSoundVolume,
   };
 }
 
-async function sendJumpCommand() {
-  const target = state.device;
-  if (!target) return false;
+function clearPendingSound() {
+  if (soundSendTimer) clearTimeout(soundSendTimer);
+  soundSendTimer = null;
+  pendingSound = null;
+}
 
-  const ble = getBle();
+function queueSoundSettings() {
+  if (!canSend.value) return;
+  pendingSound = state.soundVolume;
+  if (soundSendTimer) clearTimeout(soundSendTimer);
+  soundSendTimer = setTimeout(() => {
+    soundSendTimer = null;
+    void flushSoundSettings();
+  }, 80);
+}
+
+async function flushSoundSettings() {
+  if (soundSending) return;
+  soundSending = true;
   try {
-    await ble.sendRealtime(
-      'jump',
-      {},
-      {
-        ttlMillis: 250,
-        writeType: 'withoutResponse',
-        timeoutMillis: 500,
-      },
-    );
-    state.status = 'connected';
-    return true;
-  } catch (error) {
-    state.status = 'error';
-    state.message = errorMessage(error);
-    return false;
+    while (pendingSound !== null && state.device && canSend.value) {
+      const volume = pendingSound;
+      const target = state.device;
+      pendingSound = null;
+      soundSendingDevice = target;
+      try {
+        await getBle().send(target, {
+          method: 'dinoSetSoundVolume',
+          params: { volume },
+          id: `dino_sound_${Date.now()}`,
+        }, { priority: 0, timeoutMillis: 2500 });
+        if (target === state.device) confirmedSoundVolume = volume;
+      } catch (error) {
+        if (target === state.device && pendingSound === null) {
+          state.soundVolume = confirmedSoundVolume;
+          state.status = 'error';
+          state.message = errorMessage(error);
+        }
+        break;
+      }
+    }
+  } finally {
+    soundSending = false;
+    soundSendingDevice = null;
+    if (pendingSound !== null && canSend.value) queueSoundSettings();
   }
 }
 
@@ -229,7 +275,6 @@ function handleBleData(event: { message?: unknown }) {
   if (!message) return;
   if (message.event === 'dinoGameOver') {
     applyDinoStatus(message, 'gameover');
-    reportScoreToBot('gameover');
     return;
   }
   if (message.event === 'state' || message.event === 'stateChanged') {
@@ -237,10 +282,10 @@ function handleBleData(event: { message?: unknown }) {
   }
 }
 
-async function syncDeviceStateToBot(reason: string) {
+async function syncDeviceState() {
   const now = Date.now();
-  if (now - lastStateReportAt < 1200) return;
-  lastStateReportAt = now;
+  if (now - lastStateSyncAt < 1200) return;
+  lastStateSyncAt = now;
 
   const target = state.device;
   if (!target) return;
@@ -255,7 +300,6 @@ async function syncDeviceStateToBot(reason: string) {
     });
     const payload = responsePayload(response) as DinoEventMessage | undefined;
     if (payload) applyDinoStatus(payload);
-    reportScoreToBot(reason);
   } catch (error) {
     console.warn('[dino-runner] failed to sync device state', error);
   }
@@ -273,25 +317,14 @@ function applyDinoStatus(message: DinoEventMessage, fallbackState?: DinoGameStat
   }
   if (typeof message.lastScore === 'number') {
     state.lastScore = clampScore(message.lastScore);
-  } else if (fallbackState === 'gameover') {
-    state.lastScore = state.score;
   }
   if (typeof message.bestScore === 'number') {
-    state.bestScore = Math.max(state.bestScore, clampScore(message.bestScore));
-  } else {
-    state.bestScore = Math.max(state.bestScore, state.score);
+    state.bestScore = clampScore(message.bestScore);
   }
-}
-
-function reportScoreToBot(reason: string) {
-  sendDinoBestScoreToBot({
-    event: 'dinoGameOver',
-    score: state.score,
-    lastScore: state.lastScore,
-    bestScore: state.bestScore,
-    reportedAt: Date.now(),
-    reason,
-  });
+  if (pendingSound === null && soundSendingDevice !== state.device && typeof message.soundVolume === 'number') {
+    confirmedSoundVolume = clampVolume(message.soundVolume);
+    state.soundVolume = confirmedSoundVolume;
+  }
 }
 
 function responsePayload(response: unknown) {
@@ -302,8 +335,6 @@ function responsePayload(response: unknown) {
 
 function mockRunning() {
   state.gameState = 'running';
-  state.score = clampScore(state.score + 1);
-  state.bestScore = Math.max(state.bestScore, state.score);
 }
 
 function markLaunchReady() {
@@ -325,14 +356,14 @@ function updateLaunchPhase(phase: LaunchPhase) {
   }
 }
 
-function loadBestScore() {
-  const value = Number(localStorage.getItem(BEST_SCORE_KEY) || 0);
-  return clampScore(value);
-}
-
 function clampScore(value: unknown) {
   const next = Math.floor(Number(value));
   return Number.isFinite(next) ? Math.max(0, Math.min(MAX_SCORE, next)) : 0;
+}
+
+function clampVolume(value: unknown) {
+  const next = Math.round(Number(value));
+  return Number.isFinite(next) ? Math.max(0, Math.min(100, next)) : 100;
 }
 
 function errorMessage(error: unknown) {
